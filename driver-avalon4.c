@@ -15,6 +15,7 @@
 
 #include "miner.h"
 #include "driver-avalon4.h"
+#include "driver-avalon4-iic.h"
 #include "crc.h"
 #include "sha2.h"
 #include "hexdump.c"
@@ -48,6 +49,7 @@ int opt_avalon4_freq_min = AVA4_DEFAULT_FREQUENCY_MIN;
 int opt_avalon4_freq_max = AVA4_DEFAULT_FREQUENCY_MAX;
 bool opt_avalon4_noncecheck = AVA4_DEFAULT_NCHECK;
 int opt_avalon4_smart_speed = AVA4_DEFAULT_SMART_SPEED;
+bool rpi_i2c_device_enable = AVA4_I2C_DEVICE_DISABLE;
 /*
  * smart speed have 3 modes
  * 1. auto speed by A3218 chips
@@ -872,6 +874,29 @@ static int avalon4_iic_xfer_pkg(struct cgpu_info *avalon4, uint8_t slave_addr,
 
 	struct avalon4_info *info = avalon4->device_data;
 
+	if (info->rpi_iic_device_enable) {
+		err = rpi_i2c_write(slave_addr, (uint8_t *)pkg, AVA4_WRITE_SIZE);
+		if (err)
+			info->xfer_err_cnt++;
+
+		cgsleep_ms(opt_avalon4_aucxdelay / 4800 + 1);
+
+		err = rpi_i2c_read(slave_addr, (uint8_t *)ret, AVA4_READ_SIZE);
+		if (err) {
+			if (info->xfer_err_cnt++ == 100) {
+				applog(LOG_DEBUG, "%s-%d-%d: RPI xfer_err_cnt reach err = %d, rcnt = %d, rlen = %d",
+				avalon4->drv->name, avalon4->device_id, slave_addr, err, rcnt, rlen);
+
+				cgsleep_ms(5 * 1000); /* Wait MM reset */
+			}
+
+			return AVA4_SEND_ERROR;
+		}
+
+		info->xfer_err_cnt = 0;
+		return AVA4_SEND_OK;
+	}
+
 	iic_info.iic_op = AVA4_IIC_XFER;
 	iic_info.iic_param.slave_addr = slave_addr;
 	if (ret)
@@ -1099,9 +1124,58 @@ static struct cgpu_info *avalon4_auc_detect(struct libusb_device *dev, struct us
 	return avalon4;
 }
 
+static void avalon4_i2c_detect(void)
+{
+	int i;
+	struct avalon4_info *info;
+	struct cgpu_info *avalon4 = cgcalloc(1, sizeof(*avalon4));
+
+	avalon4->drv = &avalon4_drv;
+	avalon4->threads = 1;
+
+	add_cgpu(avalon4);
+	applog(LOG_INFO, "%s-%d: Found at %s", avalon4->drv->name, avalon4->device_id,
+						avalon4->device_path);
+
+	avalon4->device_data = cgcalloc(sizeof(struct avalon4_info), 1);
+	info = avalon4->device_data;
+	memcpy(info->auc_version, AVA4_RPI_VER, AVA4_RPI_VER_LEN);
+	info->auc_version[AVA4_AUC_VER_LEN] = '\0';
+	info->auc_speed = opt_avalon4_aucspeed;
+	info->auc_xdelay = opt_avalon4_aucxdelay;
+	info->rpi_iic_device_enable = true;
+
+	info->polling_first = 1;
+	info->newnonce = 0;
+
+	for (i = 0; i < AVA4_DEFAULT_MODULARS; i++) {
+		info->enable[i] = 0;
+		info->mod_type[i] = AVA4_TYPE_NULL;
+		info->fan_pct[i] = AVA4_DEFAULT_FAN_START;
+		info->set_voltage[i] = opt_avalon4_voltage_min;
+		memcpy(info->set_smart_frequency[i], opt_avalon4_freq, sizeof(opt_avalon4_freq));
+	}
+
+	info->enable[0] = 1;
+	info->mod_type[0] = AVA4_TYPE_MM40;
+	info->temp[0] = -273;
+
+	memcpy(info->set_frequency, opt_avalon4_freq, sizeof(opt_avalon4_freq));
+
+	info->speed_bingo[0] = opt_avalon4_speed_bingo;
+	info->speed_error[0] = opt_avalon4_speed_error;
+}
+
 static inline void avalon4_detect(bool __maybe_unused hotplug)
 {
 	usb_detect(&avalon4_drv, avalon4_auc_detect);
+	if (!rpi_i2c_device_enable) {
+		if (rpi_i2c_device_detect())
+			return ;
+
+		avalon4_i2c_detect();
+		rpi_i2c_device_enable = AVA4_I2C_DEVICE_ENABLE;
+	}
 }
 
 static bool avalon4_prepare(struct thr_info *thr)

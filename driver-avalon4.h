@@ -164,6 +164,9 @@
 #define AVA4_DEFAULT_FINC_TIME	1200.0
 #define AVA4_DEFAULT_FAVG_TIME	(15 * 60.0)
 
+#define AVA4_I2C_DEVICE_ENABLE  true
+#define AVA4_I2C_DEVICE_DISABLE false
+
 struct avalon4_pkg {
 	uint8_t head[2];
 	uint8_t type;
@@ -194,6 +197,8 @@ struct avalon4_info {
 	int auc_speed;
 	int auc_xdelay;
 	int auc_temp;
+
+	bool rpi_iic_device_enable;
 
 	int mm_count;
 
