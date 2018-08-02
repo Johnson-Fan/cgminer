@@ -29,13 +29,13 @@ int opt_avalon8_voltage_level_offset = AVA8_DEFAULT_VOLTAGE_LEVEL_OFFSET;
 
 int opt_avalon8_freq[AVA8_DEFAULT_PLL_CNT] =
 {
-	AVA8_DEFAULT_FREQUENCY,
-	AVA8_DEFAULT_FREQUENCY,
-	AVA8_DEFAULT_FREQUENCY,
-	AVA8_DEFAULT_FREQUENCY,
-	AVA8_DEFAULT_FREQUENCY,
-	AVA8_DEFAULT_FREQUENCY,
-	AVA8_DEFAULT_FREQUENCY
+	AVA8_DEFAULT_FREQUENCY_IGNORE,
+	AVA8_DEFAULT_FREQUENCY_IGNORE,
+	AVA8_DEFAULT_FREQUENCY_IGNORE,
+	AVA8_DEFAULT_FREQUENCY_IGNORE,
+	AVA8_DEFAULT_FREQUENCY_IGNORE,
+	AVA8_DEFAULT_FREQUENCY_IGNORE,
+	AVA8_DEFAULT_FREQUENCY_IGNORE
 };
 
 int opt_avalon8_freq_sel = AVA8_DEFAULT_FREQUENCY_SEL;
@@ -1928,7 +1928,7 @@ static int64_t avalon8_scanhash(struct thr_info *thr)
 				update_settings = true;
 				for (j = 0; j < info->miner_count[i]; j++) {
 					for (k = 0; k < AVA8_DEFAULT_PLL_CNT; k++) {
-						if (opt_avalon8_freq[k] != AVA8_DEFAULT_FREQUENCY)
+						if (opt_avalon8_freq[k] != AVA8_DEFAULT_FREQUENCY_IGNORE)
 							info->set_frequency[i][j][k] = opt_avalon8_freq[k];
 					}
 				}
