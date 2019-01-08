@@ -115,6 +115,8 @@
 #define AVA9_DEFAULT_LV6_TH_ADD		0
 #define AVA9_DEFAULT_LV7_TH_ADD		0
 
+#define AVA9_DEFAULT_MAX_DIFF		576
+
 #define AVA9_DEFAULT_IIC_DETECT		false
 
 #define AVA9_PWM_MAX			0x3FF
@@ -416,5 +418,6 @@ extern uint32_t opt_avalon9_lv7_th_add;
 extern uint32_t opt_avalon9_pid_p;
 extern uint32_t opt_avalon9_pid_i;
 extern uint32_t opt_avalon9_pid_d;
+extern uint32_t opt_avalon9_max_diff;
 #endif /* USE_AVALON9 */
 #endif /* _AVALON9_H_ */

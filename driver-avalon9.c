@@ -95,6 +95,8 @@ uint32_t opt_avalon9_lv5_th_add = AVA9_DEFAULT_LV5_TH_ADD;
 uint32_t opt_avalon9_lv6_th_add = AVA9_DEFAULT_LV6_TH_ADD;
 uint32_t opt_avalon9_lv7_th_add = AVA9_DEFAULT_LV7_TH_ADD;
 
+uint32_t opt_avalon9_max_diff = AVA9_DEFAULT_MAX_DIFF;
+
 uint32_t cpm_table[] =
 {
 	0x00000000,
@@ -1184,10 +1186,13 @@ static void avalon9_stratum_pkgs(struct cgpu_info *avalon9, struct pool *pool)
 	if (avalon9_send_bc_pkgs(avalon9, &pkg))
 		return;
 
-	if (pool->sdiff <= AVA9_DRV_DIFFMAX)
+	if (pool->sdiff <= opt_avalon9_max_diff) {
 		set_target(target, pool->sdiff);
-	else
-		set_target(target, AVA9_DRV_DIFFMAX);
+		opt_avalon9_max_diff = pool->sdiff;
+		avalon9->drv->max_diff = opt_avalon9_max_diff;
+	} else {
+		set_target(target, opt_avalon9_max_diff);
+	}
 
 	memcpy(pkg.data, target, 32);
 	if (opt_debug) {
@@ -1369,6 +1374,7 @@ static struct cgpu_info *avalon9_auc_detect(struct libusb_device *dev, struct us
 
 	/* We have an avalon9 AUC connected */
 	avalon9->threads = 1;
+	avalon9->drv->max_diff = opt_avalon9_max_diff;
 	add_cgpu(avalon9);
 
 	update_usb_stats(avalon9);
@@ -3022,6 +3028,6 @@ struct device_drv avalon9_drv = {
 	.flush_work = avalon9_sswork_update,
 	.update_work = avalon9_sswork_update,
 	.scanwork = avalon9_scanhash,
-	.max_diff = AVA9_DRV_DIFFMAX,
+	.max_diff = AVA9_DEFAULT_MAX_DIFF,
 	.genwork = true,
 };

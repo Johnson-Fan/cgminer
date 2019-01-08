@@ -1770,6 +1770,9 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_CBARG("--avalon9-adjust-volt-info",
 		     set_avalon9_adjust_volt_info, NULL, &opt_set_avalon9_adjust_volt_info,
 		     "Set Avalon9 adjust volt info, range 0-9999"),
+	OPT_WITH_ARG("--avalon9-max-diff",
+		     set_int_1_to_65535, opt_show_intval, &opt_avalon9_max_diff,
+		     "Set Avalon9 maximum difficulty, range 1-65535"),
 #endif
 #ifdef USE_AVALON_MINER
 	OPT_WITH_CBARG("--avalonm-voltage",
