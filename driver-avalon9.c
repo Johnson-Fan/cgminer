@@ -369,16 +369,20 @@ char *set_avalon9_freq(char *arg)
 char *set_avalon9_adjust_volt_info(char *arg)
 {
 	int ret;
-	ret = sscanf(arg, "%d-%d-%d-%d-%d-%d-%d-%d", &opt_avalon9_adjust_volt_up_init, \
-		&opt_avalon9_adjust_volt_up_factor, &opt_avalon9_adjust_volt_up_threshold, 
-		&opt_avalon9_adjust_volt_down_init, &opt_avalon9_adjust_volt_down_factor, \
-		&opt_avalon9_adjust_volt_down_threshold, &opt_avalon9_adjust_volt_time, &opt_avalon9_adjust_volt_enable);
 
-	 if (ret < 1)
-           return "Invalid value for adjust volt";
+	ret = sscanf(arg, "%d-%d-%d-%d-%d-%d-%d-%d", &opt_avalon9_adjust_volt_up_init,
+						&opt_avalon9_adjust_volt_up_factor,
+						&opt_avalon9_adjust_volt_up_threshold,
+						&opt_avalon9_adjust_volt_down_init,
+						&opt_avalon9_adjust_volt_down_factor,
+						&opt_avalon9_adjust_volt_down_threshold,
+						&opt_avalon9_adjust_volt_time,
+						&opt_avalon9_adjust_volt_enable);
+	if (ret < 1)
+		return "Invalid value for adjust volt info";
+
 	return NULL;
 }
-
 
 char *set_avalon9_voltage_level(char *arg)
 {
@@ -759,7 +763,7 @@ static int decode_pkg(struct cgpu_info *avalon9, struct avalon9_ret *ar, int mod
 			for (i = 0; i < AVA9_DEFAULT_PLL_CNT; i++) {
 				memcpy(&tmp, ar->data + 8 + i * 2, 2);
 				info->get_asic[modular_id][miner_id][asic_id][2 + i] = be16toh(tmp);
-			}			
+			}
 		}
 		break;
 	case AVA9_P_STATUS_ASIC_PLL:
@@ -781,8 +785,7 @@ static int decode_pkg(struct cgpu_info *avalon9, struct avalon9_ret *ar, int mod
 			for (i = 0; i < AVA9_DEFAULT_PLL_CNT; i++) {
 				memcpy(&freq, ar->data + i * 2, 2);
 				info->get_frequency[modular_id][miner_id][asic_id][i] = be16toh(freq);
-				//applog(LOG_ERR, "***PLL %d : %d", i, info->get_frequency[modular_id][miner_id][asic_id][i]);
-			}			
+			}
 		}
 		break;
 	case AVA9_P_STATUS_PVT_RO:
@@ -1763,66 +1766,67 @@ static void avalon9_init_setting(struct cgpu_info *avalon9, int addr)
 		avalon9_iic_xfer_pkg(avalon9, addr, &send_pkg, NULL);
 }
 
-static void avalon9_set_adjust_voltage_option(struct cgpu_info *avalon9, int addr, int32_t up_init, uint32_t up_factor, uint32_t up_threshold,
- 						int32_t down_init, uint32_t down_factor, uint32_t down_threshold, uint32_t time, uint32_t enable)
- {
- 	struct avalon9_info *info = avalon9->device_data;
- 	struct avalon9_pkg send_pkg;
- 	int32_t tmp;
- 
-  	memset(send_pkg.data, 0, AVA9_P_DATA_LEN);
- 
-  	tmp = be32toh(up_init);
- 	memcpy(send_pkg.data + 0, &tmp, 4);
- 	applog(LOG_DEBUG, "%s-%d-%d: avalon9 adjust volt set up init %d",
- 			avalon9->drv->name, avalon9->device_id, addr, up_init);
- 
-  	tmp = be32toh(up_factor);
- 	memcpy(send_pkg.data + 4, &tmp, 4);
- 	applog(LOG_DEBUG, "%s-%d-%d: avalon9 adjust volt set up factor %d",
- 			avalon9->drv->name, avalon9->device_id, addr, up_factor);
- 
-  	tmp = be32toh(up_threshold);
- 	memcpy(send_pkg.data + 8, &tmp, 4);
- 	applog(LOG_DEBUG, "%s-%d-%d: avalon9 adjust volt set up threshold %d",
- 			avalon9->drv->name, avalon9->device_id, addr, up_threshold);
- 
-  	tmp = be32toh(down_init);
- 	memcpy(send_pkg.data + 12, &tmp, 4);
- 	applog(LOG_DEBUG, "%s-%d-%d: avalon9 adjust volt set down init %d",
- 			avalon9->drv->name, avalon9->device_id, addr, down_init);
- 
-  	tmp = be32toh(down_factor);
- 	memcpy(send_pkg.data + 16, &tmp, 4);
- 	applog(LOG_DEBUG, "%s-%d-%d: avalon9 adjust volt set down factor %d",
- 			avalon9->drv->name, avalon9->device_id, addr, down_factor);
- 
-  	tmp = be32toh(down_threshold);
- 	memcpy(send_pkg.data + 20, &tmp, 4);
- 	applog(LOG_DEBUG, "%s-%d-%d: avalon9 adjust volt set down threshold %d",
- 			avalon9->drv->name, avalon9->device_id, addr, down_threshold);
- 
-  	tmp = be32toh(time);
- 	memcpy(send_pkg.data + 24, &tmp, 4);
- 	applog(LOG_DEBUG, "%s-%d-%d: avalon9 adjust volt set time %d",
- 			avalon9->drv->name, avalon9->device_id, addr, time);
+static void avalon9_set_adjust_voltage_option(struct cgpu_info *avalon9, int addr,
+						int32_t up_init, uint32_t up_factor, uint32_t up_threshold,
+						int32_t down_init, uint32_t down_factor, uint32_t down_threshold,
+						uint32_t time, uint32_t enable)
+{
+	struct avalon9_info *info = avalon9->device_data;
+	struct avalon9_pkg send_pkg;
+	int32_t tmp;
+
+	memset(send_pkg.data, 0, AVA9_P_DATA_LEN);
+
+	tmp = be32toh(up_init);
+	memcpy(send_pkg.data + 0, &tmp, 4);
+	applog(LOG_DEBUG, "%s-%d-%d: avalon9 adjust volt set up init %d",
+			avalon9->drv->name, avalon9->device_id, addr, up_init);
+
+	tmp = be32toh(up_factor);
+	memcpy(send_pkg.data + 4, &tmp, 4);
+	applog(LOG_DEBUG, "%s-%d-%d: avalon9 adjust volt set up factor %d",
+			avalon9->drv->name, avalon9->device_id, addr, up_factor);
+
+	tmp = be32toh(up_threshold);
+	memcpy(send_pkg.data + 8, &tmp, 4);
+	applog(LOG_DEBUG, "%s-%d-%d: avalon9 adjust volt set up threshold %d",
+			avalon9->drv->name, avalon9->device_id, addr, up_threshold);
+
+	tmp = be32toh(down_init);
+	memcpy(send_pkg.data + 12, &tmp, 4);
+	applog(LOG_DEBUG, "%s-%d-%d: avalon9 adjust volt set down init %d",
+			avalon9->drv->name, avalon9->device_id, addr, down_init);
+
+	tmp = be32toh(down_factor);
+	memcpy(send_pkg.data + 16, &tmp, 4);
+	applog(LOG_DEBUG, "%s-%d-%d: avalon9 adjust volt set down factor %d",
+			avalon9->drv->name, avalon9->device_id, addr, down_factor);
+
+	tmp = be32toh(down_threshold);
+	memcpy(send_pkg.data + 20, &tmp, 4);
+	applog(LOG_DEBUG, "%s-%d-%d: avalon9 adjust volt set down threshold %d",
+			avalon9->drv->name, avalon9->device_id, addr, down_threshold);
+
+	tmp = be32toh(time);
+	memcpy(send_pkg.data + 24, &tmp, 4);
+	applog(LOG_DEBUG, "%s-%d-%d: avalon9 adjust volt set time %d",
+			avalon9->drv->name, avalon9->device_id, addr, time);
 
 	tmp = be32toh(enable);
- 	memcpy(send_pkg.data + 28, &tmp, 4);
- 	applog(LOG_DEBUG, "%s-%d-%d: avalon9 adjust volt set enable %d",
- 			avalon9->drv->name, avalon9->device_id, addr, time);
- 
-  	/* Package the data */
- 	avalon9_init_pkg(&send_pkg, AVA9_P_SET_ADJUST_VOLT, 1, 1);
- 
-  	if (addr == AVA9_MODULE_BROADCAST)
- 		avalon9_send_bc_pkgs(avalon9, &send_pkg);
- 	else
- 		avalon9_iic_xfer_pkg(avalon9, addr, &send_pkg, NULL);
- 
-  	return;
- }
+	memcpy(send_pkg.data + 28, &tmp, 4);
+	applog(LOG_DEBUG, "%s-%d-%d: avalon9 adjust volt set enable %d",
+			avalon9->drv->name, avalon9->device_id, addr, time);
 
+	/* Package the data */
+	avalon9_init_pkg(&send_pkg, AVA9_P_SET_ADJUST_VOLT, 1, 1);
+
+	if (addr == AVA9_MODULE_BROADCAST)
+		avalon9_send_bc_pkgs(avalon9, &send_pkg);
+ 	else
+		avalon9_iic_xfer_pkg(avalon9, addr, &send_pkg, NULL);
+
+	return;
+}
 
 static void avalon9_set_voltage_level(struct cgpu_info *avalon9, int addr, unsigned int voltage[])
 {
@@ -2213,10 +2217,15 @@ static int64_t avalon9_scanhash(struct thr_info *thr)
 			for (j = 0; j < info->miner_count[i]; j++)
 				avalon9_set_freq(avalon9, i, j, 0, info->set_frequency[i][j]);
 
-			avalon9_set_adjust_voltage_option(avalon9, i, opt_avalon9_adjust_volt_up_init, \
-		opt_avalon9_adjust_volt_up_factor, opt_avalon9_adjust_volt_up_threshold, 
-		opt_avalon9_adjust_volt_down_init, opt_avalon9_adjust_volt_down_factor, \
-		opt_avalon9_adjust_volt_down_threshold, opt_avalon9_adjust_volt_time, opt_avalon9_adjust_volt_enable);
+			avalon9_set_adjust_voltage_option(avalon9, i,
+								opt_avalon9_adjust_volt_up_init,
+								opt_avalon9_adjust_volt_up_factor,
+								opt_avalon9_adjust_volt_up_threshold,
+								opt_avalon9_adjust_volt_down_init,
+								opt_avalon9_adjust_volt_down_factor,
+								opt_avalon9_adjust_volt_down_threshold,
+								opt_avalon9_adjust_volt_time,
+								opt_avalon9_adjust_volt_enable);
 
 			if (opt_avalon9_smart_speed)
 				avalon9_set_ss_param(avalon9, i);
