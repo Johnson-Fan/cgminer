@@ -556,7 +556,7 @@ static int decode_pkg(struct cgpu_info *avalon9, struct avalon9_ret *ar, int mod
 
 	unsigned short expected_crc;
 	unsigned short actual_crc;
-	uint32_t nonce, nonce2, ntime, miner, chip_id, tmp;
+	uint32_t nonce, nonce2, ntime, miner, asic, tmp;
 	uint8_t job_id[2];
 	int pool_no;
 	uint32_t i, j;
@@ -585,78 +585,78 @@ static int decode_pkg(struct cgpu_info *avalon9, struct avalon9_ret *ar, int mod
 	switch(ar->type) {
 	case AVA9_P_NONCE:
 		applog(LOG_DEBUG, "%s-%d-%d: AVA9_P_NONCE", avalon9->drv->name, avalon9->device_id, modular_id);
-		memcpy(&miner, ar->data + 0, 4);
-		memcpy(&nonce2, ar->data + 4, 4);
-		memcpy(&ntime, ar->data + 8, 4);
-		memcpy(&nonce, ar->data + 12, 4);
-		job_id[0] = ar->data[16];
-		job_id[1] = ar->data[17];
-		pool_no = (ar->data[18] | (ar->data[19] << 8));
+		for (i = 0; i < 2; i++) {
+			if (!(ar->data[i * 16] & 0x80))
+				continue;
 
-		miner = be32toh(miner);
-		chip_id = (miner >> 16) & 0xffff;
-		miner &= 0xffff;
-		ntime = be32toh(ntime);
-		if (miner >= info->miner_count[modular_id] ||
-		    pool_no >= total_pools || pool_no < 0) {
-			applog(LOG_DEBUG, "%s-%d-%d: Wrong miner/pool_no %d/%d",
-					avalon9->drv->name, avalon9->device_id, modular_id,
-					miner, pool_no);
-			break;
-		}
-		nonce2 = be32toh(nonce2);
-		nonce = be32toh(nonce);
+			miner = ar->data[i * 16 + 0] & 0x7f;
+			asic  = ar->data[i * 16 + 1];
+			ntime = ar->data[i * 16 + 2] | (ar->data[i * 16 + 3] << 8);
 
-		if (ntime > info->max_ntime)
-			info->max_ntime = ntime;
+			memcpy(&nonce2, ar->data + i * 16 + 4, 4);
+			memcpy(&nonce,  ar->data + i * 16 + 8, 4);
+			job_id[0] = ar->data[i * 16 + 12];
+			job_id[1] = ar->data[i * 16 + 13];
+			pool_no   = ar->data[i * 16 + 14] | (ar->data[i * 16 + 15] << 8);
 
-		applog(LOG_NOTICE, "%s-%d-%d: Found! P:%d - N2:%08x N:%08x NR:%d/%d [M:%d, A:%d, C:%d - MW: (%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64")]",
-		       avalon9->drv->name, avalon9->device_id, modular_id,
-		       pool_no, nonce2, nonce, ntime, info->max_ntime,
-		       miner, chip_id, nonce & 0x7f,
-		       info->chip_matching_work[modular_id][miner][0],
-		       info->chip_matching_work[modular_id][miner][1],
-		       info->chip_matching_work[modular_id][miner][2],
-		       info->chip_matching_work[modular_id][miner][3]);
-
-		real_pool = pool = pools[pool_no];
-		if (job_idcmp(job_id, pool->swork.job_id)) {
-			if (!job_idcmp(job_id, pool_stratum0->swork.job_id)) {
-				applog(LOG_DEBUG, "%s-%d-%d: Match to previous stratum0! (%s)",
+			if (miner >= info->miner_count[modular_id] ||
+				asic >= info->asic_count[modular_id] ||
+				pool_no >= total_pools || pool_no < 0) {
+				applog(LOG_DEBUG, "%s-%d-%d: Wrong miner/asic/pool_no %d/%d/%d",
 						avalon9->drv->name, avalon9->device_id, modular_id,
-						pool_stratum0->swork.job_id);
-				pool = pool_stratum0;
-			} else if (!job_idcmp(job_id, pool_stratum1->swork.job_id)) {
-				applog(LOG_DEBUG, "%s-%d-%d: Match to previous stratum1! (%s)",
-						avalon9->drv->name, avalon9->device_id, modular_id,
-						pool_stratum1->swork.job_id);
-				pool = pool_stratum1;
-			} else if (!job_idcmp(job_id, pool_stratum2->swork.job_id)) {
-				applog(LOG_DEBUG, "%s-%d-%d: Match to previous stratum2! (%s)",
-						avalon9->drv->name, avalon9->device_id, modular_id,
-						pool_stratum2->swork.job_id);
-				pool = pool_stratum2;
-			} else {
-				applog(LOG_ERR, "%s-%d-%d: Cannot match to any stratum! (%s)",
-						avalon9->drv->name, avalon9->device_id, modular_id,
-						pool->swork.job_id);
-				if (likely(thr))
-					inc_hw_errors(thr);
-				info->hw_works_i[modular_id][miner]++;
-				break;
+						miner, asic, pool_no);
+				continue;
 			}
-		}
+			nonce = be32toh(nonce);
+			nonce2 = be32toh(nonce2);
 
-		/* Can happen during init sequence before add_cgpu */
-		if (unlikely(!thr))
-			break;
+			if (ntime > info->max_ntime)
+				info->max_ntime = ntime;
 
-		last_diff1 = avalon9->diff1;
-		if (!submit_nonce2_nonce(thr, pool, real_pool, nonce2, nonce, ntime))
-			info->hw_works_i[modular_id][miner]++;
-		else {
-			info->diff1[modular_id] += (avalon9->diff1 - last_diff1);
-			info->chip_matching_work[modular_id][miner][chip_id]++;
+			applog(LOG_NOTICE, "%s-%d-%d: Found! P:%d - N2:%08x N:%08x NR:%d/%d [M:%d, A:%d, C:%d]",
+								       avalon9->drv->name, avalon9->device_id, modular_id,
+								       pool_no, nonce2, nonce, ntime, info->max_ntime,
+								       miner, asic, nonce & 0xff);
+
+			real_pool = pool = pools[pool_no];
+			if (job_idcmp(job_id, pool->swork.job_id)) {
+				if (!job_idcmp(job_id, pool_stratum0->swork.job_id)) {
+					applog(LOG_DEBUG, "%s-%d-%d: Match to previous stratum0! (%s)",
+							avalon9->drv->name, avalon9->device_id, modular_id,
+							pool_stratum0->swork.job_id);
+					pool = pool_stratum0;
+				} else if (!job_idcmp(job_id, pool_stratum1->swork.job_id)) {
+					applog(LOG_DEBUG, "%s-%d-%d: Match to previous stratum1! (%s)",
+							avalon9->drv->name, avalon9->device_id, modular_id,
+							pool_stratum1->swork.job_id);
+					pool = pool_stratum1;
+				} else if (!job_idcmp(job_id, pool_stratum2->swork.job_id)) {
+					applog(LOG_DEBUG, "%s-%d-%d: Match to previous stratum2! (%s)",
+							avalon9->drv->name, avalon9->device_id, modular_id,
+							pool_stratum2->swork.job_id);
+					pool = pool_stratum2;
+				} else {
+					applog(LOG_ERR, "%s-%d-%d: Cannot match to any stratum! (%s)",
+							avalon9->drv->name, avalon9->device_id, modular_id,
+							pool->swork.job_id);
+					if (likely(thr))
+						inc_hw_errors(thr);
+					info->hw_works_i[modular_id][miner]++;
+					break;
+				}
+			}
+
+			/* Can happen during init sequence before add_cgpu */
+			if (unlikely(!thr))
+				break;
+
+			last_diff1 = avalon9->diff1;
+			if (!submit_nonce2_nonce(thr, pool, real_pool, nonce2, nonce, ntime))
+				info->hw_works_i[modular_id][miner]++;
+			else {
+				info->diff1[modular_id] += (avalon9->diff1 - last_diff1);
+				info->chip_matching_work[modular_id][miner][asic]++;
+			}
 		}
 		break;
 	case AVA9_P_STATUS:
