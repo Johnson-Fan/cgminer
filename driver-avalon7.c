@@ -1151,6 +1151,17 @@ static void avalon7_stratum_pkgs(struct cgpu_info *avalon7, struct pool *pool)
 	if (avalon7_send_bc_pkgs(avalon7, &pkg))
 		return;
 
+	memset(pkg.data, 0, AVA7_P_DATA_LEN);
+
+	memcpy(pkg.data, &pool->vmask_001[0], 4);
+	memcpy(pkg.data + 4, &pool->vmask_001[2], 4);
+	memcpy(pkg.data + 8, &pool->vmask_001[4], 4);
+	memcpy(pkg.data + 12, &pool->vmask_001[8], 4);
+
+	avalon7_init_pkg(&pkg, AVA7_P_VMASK, 1, 1);
+	if (avalon7_send_bc_pkgs(avalon7, &pkg))
+		return;
+
 	if (pool->sdiff <= AVA7_DRV_DIFFMAX)
 		set_target(target, pool->sdiff);
 	else

@@ -111,6 +111,7 @@
 #define AVA7_P_HEADER	0x15
 #define AVA7_P_TARGET	0x16
 #define AVA7_P_JOB_FIN	0x17
+#define AVA7_P_VMASK	0x18
 
 /* ss package */
 #define AVA7_P_MID	0xa7
