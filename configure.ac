@@ -217,6 +217,7 @@ AC_ARG_ENABLE([avalon7],
 	)
 if test "x$avalon7" = xyes; then
 	AC_DEFINE([USE_AVALON7], [1], [Defined to 1 if Avalon7 support is wanted])
+	AC_DEFINE([USE_VMASK], [1], [Defined to 1 if version mask rolling is wanted])
 fi
 AM_CONDITIONAL([HAS_AVALON7], [test x$avalon7 = xyes])
 
