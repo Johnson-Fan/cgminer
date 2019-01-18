@@ -645,7 +645,7 @@ static int decode_pkg(struct cgpu_info *avalon7, struct avalon7_ret *ar, int mod
 			break;
 
 		last_diff1 = avalon7->diff1;
-		if (!submit_nonce2_nonce(thr, pool, real_pool, nonce2, nonce, ntime))
+		if (!submit_nonce2_nonce(thr, pool, real_pool, nonce2, nonce, ntime, micro_job_id))
 			info->hw_works_i[modular_id][miner]++;
 		else {
 			info->diff1[modular_id] += (avalon7->diff1 - last_diff1);

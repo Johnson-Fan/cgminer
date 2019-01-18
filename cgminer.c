@@ -309,7 +309,7 @@ char *opt_bitmine_a1_options = NULL;
 #include "dragonmint_t1.h"
 char *opt_dragonmint_t1_options = NULL;
 int opt_T1Pll[MCOMPAT_CONFIG_MAX_CHAIN_NUM] = {
-	DEFAULT_PLL, DEFAULT_PLL, DEFAULT_PLL, DEFAULT_PLL, 
+	DEFAULT_PLL, DEFAULT_PLL, DEFAULT_PLL, DEFAULT_PLL,
 	DEFAULT_PLL, DEFAULT_PLL, DEFAULT_PLL, DEFAULT_PLL
 };
 int opt_T1Vol[MCOMPAT_CONFIG_MAX_CHAIN_NUM] = {
@@ -1835,7 +1835,7 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_ARG("--version-file",
 	set_version_path, NULL, opt_hidden,
 	"Set miner version file"),
-	
+
 	OPT_WITHOUT_ARG("--bitmain-fan-ctrl",
 	opt_set_bool, &opt_bitmain_fan_ctrl,
 	"Enable bitmain miner fan controlling"),
@@ -7682,7 +7682,7 @@ void set_target(unsigned char *dest_target, double diff)
 
 #if defined (USE_AVALON2) || defined (USE_AVALON4) || defined (USE_AVALON7) || defined (USE_AVALON8) || defined (USE_AVALON_MINER) || defined (USE_HASHRATIO)
 bool submit_nonce2_nonce(struct thr_info *thr, struct pool *pool, struct pool *real_pool,
-			 uint32_t nonce2, uint32_t nonce,  uint32_t ntime)
+			 uint32_t nonce2, uint32_t nonce,  uint32_t ntime, uint32_t micro_job_id)
 {
 	const int thr_id = thr->id;
 	struct cgpu_info *cgpu = thr->cgpu;
@@ -7704,6 +7704,9 @@ bool submit_nonce2_nonce(struct thr_info *thr, struct pool *pool, struct pool *r
 	work->thr_id = thr_id;
 	work->work_block = work_block;
 	work->pool->works++;
+
+	work->micro_job_id = micro_job_id;
+	memcpy(work->data, &pool->vmask_001[micro_job_id], 4);
 
 	work->mined = true;
 	work->device_diff = MIN(drv->max_diff, work->work_difficulty);
