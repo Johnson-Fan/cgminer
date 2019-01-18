@@ -550,6 +550,7 @@ static int decode_pkg(struct cgpu_info *avalon7, struct avalon7_ret *ar, int mod
 	unsigned short expected_crc;
 	unsigned short actual_crc;
 	uint32_t nonce, nonce2, ntime, miner, chip_id, tmp;
+	uint32_t micro_job_id;
 	uint8_t job_id[2];
 	int pool_no;
 	uint32_t i;
@@ -586,6 +587,9 @@ static int decode_pkg(struct cgpu_info *avalon7, struct avalon7_ret *ar, int mod
 		job_id[1] = ar->data[17];
 		pool_no = (ar->data[18] | (ar->data[19] << 8));
 
+		memcpy(&micro_job_id, ar->data + 20, 4);
+		micro_job_id = be32toh(micro_job_id) * 2;
+
 		miner = be32toh(miner);
 		chip_id = (miner >> 16) & 0xffff;
 		miner &= 0xffff;
@@ -603,14 +607,10 @@ static int decode_pkg(struct cgpu_info *avalon7, struct avalon7_ret *ar, int mod
 		if (ntime > info->max_ntime)
 			info->max_ntime = ntime;
 
-		applog(LOG_DEBUG, "%s-%d-%d: Found! P:%d - N2:%08x N:%08x NR:%d/%d [M:%d - MW: (%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64")]",
+		applog(LOG_NOTICE, "%s-%d-%d: Found! P:%d - N2:%08x N:%08x NR:%d/%d [MIMER:%d ASIC:%02d CORE:%03d MID:%d]",
 		       avalon7->drv->name, avalon7->device_id, modular_id,
 		       pool_no, nonce2, nonce, ntime, info->max_ntime,
-		       miner,
-		       info->chip_matching_work[modular_id][miner][0],
-		       info->chip_matching_work[modular_id][miner][1],
-		       info->chip_matching_work[modular_id][miner][2],
-		       info->chip_matching_work[modular_id][miner][3]);
+		       miner, chip_id, nonce & 0x7f, micro_job_id);
 
 		real_pool = pool = pools[pool_no];
 		if (job_idcmp(job_id, pool->swork.job_id)) {
