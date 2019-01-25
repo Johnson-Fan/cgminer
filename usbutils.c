@@ -3361,6 +3361,7 @@ int _usb_read(struct cgpu_info *cgpu, int intinfo, int epinfo, char *buf, size_t
 		done = tdiff(&tv_finish, &read_start);
 		// N.B. this is: return last err with whatever size has already been read
 		timeout = initial_timeout - (done * 1000);
+		applog(LOG_DEBUG, "read time %d", timeout);
 		if (timeout <= 0)
 			break;
 	}
@@ -3483,6 +3484,7 @@ int _usb_write(struct cgpu_info *cgpu, int intinfo, int epinfo, char *buf, size_
 		done = tdiff(&tv_finish, &write_start);
 		// N.B. this is: return last err with whatever size was written
 		timeout = initial_timeout - (done * 1000);
+		applog(LOG_DEBUG, "write time %d", timeout);
 		if (timeout <= 0)
 			break;
 	}

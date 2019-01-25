@@ -29,6 +29,7 @@
 #include <assert.h>
 #include <signal.h>
 #include <limits.h>
+#include "crc.h"
 
 #ifdef USE_USBUTILS
 #include <semaphore.h>
@@ -309,7 +310,7 @@ char *opt_bitmine_a1_options = NULL;
 #include "dragonmint_t1.h"
 char *opt_dragonmint_t1_options = NULL;
 int opt_T1Pll[MCOMPAT_CONFIG_MAX_CHAIN_NUM] = {
-	DEFAULT_PLL, DEFAULT_PLL, DEFAULT_PLL, DEFAULT_PLL, 
+	DEFAULT_PLL, DEFAULT_PLL, DEFAULT_PLL, DEFAULT_PLL,
 	DEFAULT_PLL, DEFAULT_PLL, DEFAULT_PLL, DEFAULT_PLL
 };
 int opt_T1Vol[MCOMPAT_CONFIG_MAX_CHAIN_NUM] = {
@@ -1835,7 +1836,7 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_ARG("--version-file",
 	set_version_path, NULL, opt_hidden,
 	"Set miner version file"),
-	
+
 	OPT_WITHOUT_ARG("--bitmain-fan-ctrl",
 	opt_set_bool, &opt_bitmain_fan_ctrl,
 	"Enable bitmain miner fan controlling"),
@@ -7304,7 +7305,7 @@ static bool setup_gbt_solo(CURL *curl, struct pool *pool)
 	if (opt_debug) {
 		char *cb = bin2hex(pool->coinbase, pool->coinbase_len);
 
-		applog(LOG_DEBUG, "Pool %d coinbase %s", pool->pool_no, cb);
+		applog(LOG_DEBUG, "Pool %d len %d coinbase %s", pool->pool_no, pool->coinbase_len, cb);
 		free(cb);
 	}
 out:
@@ -7682,20 +7683,47 @@ void set_target(unsigned char *dest_target, double diff)
 
 #if defined (USE_AVALON2) || defined (USE_AVALON4) || defined (USE_AVALON7) || defined (USE_AVALON8) || defined (USE_AVALON_MINER) || defined (USE_HASHRATIO)
 bool submit_nonce2_nonce(struct thr_info *thr, struct pool *pool, struct pool *real_pool,
-			 uint32_t nonce2, uint32_t nonce,  uint32_t ntime)
+			 uint32_t nonce2, uint32_t nonce,  uint32_t ntime, uint32_t work_crc)
 {
 	const int thr_id = thr->id;
 	struct cgpu_info *cgpu = thr->cgpu;
 	struct device_drv *drv = cgpu->drv;
 	struct work *work = make_work();
 	bool ret;
+	uint8_t test[44];
+	uint16_t crc;
+	static uint32_t crc_err_cnt = 0;
+
 
 	cg_wlock(&pool->data_lock);
 	pool->nonce2 = nonce2;
 	cg_wunlock(&pool->data_lock);
 
 	gen_stratum_work(pool, work);
+
+	{
+		char *dat = bin2hex(work->data + 64, 12);
+		char *mid = bin2hex(work->midstate, 32);
+		char *hah = bin2hex(work->hash, 32);
+
+		applog(LOG_NOTICE, "mid:%s data:%s hah:%s", mid, dat, hah);
+		free(dat);
+		free(mid);
+		free(hah);
+
+		memcpy(test, work->midstate, 32);
+		memcpy(test + 32, work->data + 64, 12);
+
+		crc = crc16(test, 44);
+		if (crc != work_crc)
+			crc_err_cnt++;
+
+		applog(LOG_NOTICE, "work crc:%08x crc error:%08x", crc, crc_err_cnt);
+	}
+
 	roll_work_ntime(work, ntime);
+
+	applog(LOG_DEBUG, "job_id1 %s job_id %s", pool->swork.job_id, real_pool->swork.job_id);
 
 	work->pool = real_pool;
 	/* Inherit the sdiff from the original stratum */
@@ -7708,6 +7736,11 @@ bool submit_nonce2_nonce(struct thr_info *thr, struct pool *pool, struct pool *r
 	work->mined = true;
 	work->device_diff = MIN(drv->max_diff, work->work_difficulty);
 	work->device_diff = MAX(drv->min_diff, work->device_diff);
+
+	applog(LOG_DEBUG, "submit nonce 2 max_diff %f min_diff %f work_difficult %f device_diff %f", drv->max_diff,
+													drv->min_diff,
+													work->work_difficulty,
+													work->device_diff);
 
 	ret = submit_nonce(thr, work, nonce);
 	free_work(work);
@@ -8087,7 +8120,7 @@ static void submit_work_async(struct work *work)
 
 void inc_hw_errors(struct thr_info *thr)
 {
-	applog(LOG_INFO, "%s %d: invalid nonce - HW error", thr->cgpu->drv->name,
+	applog(LOG_NOTICE, "%s %d: invalid nonce - HW error", thr->cgpu->drv->name,
 	       thr->cgpu->device_id);
 
 	mutex_lock(&stats_lock);
@@ -8111,10 +8144,35 @@ static void rebuild_nonce(struct work *work, uint32_t nonce)
 /* For testing a nonce against diff 1 */
 bool test_nonce(struct work *work, uint32_t nonce)
 {
+	bool test1 = false;
+	uint8_t test[44];
+	uint16_t crc = 0;
+
 	uint32_t *hash_32 = (uint32_t *)(work->hash + 28);
 
 	rebuild_nonce(work, nonce);
-	return (*hash_32 == 0);
+
+	test1 = (*hash_32 == 0);
+
+	if (!test1) {
+		char *dat = bin2hex(work->data + 64, 12);
+		char *mid = bin2hex(work->midstate, 32);
+		char *hah = bin2hex(work->hash, 32);
+
+		applog(LOG_NOTICE, "test nonce mid:%s data:%s hash:%s", mid, dat, hah);
+		free(dat);
+		free(mid);
+		free(hah);
+
+		memcpy(test, work->midstate, 32);
+		memcpy(test + 32, work->data + 64, 12);
+
+		crc = crc16(test, 44);
+
+		applog(LOG_NOTICE, "test nonce work crc:%08x", crc);
+	}
+
+	return test1;
 }
 
 /* For testing a nonce against an arbitrary diff */
@@ -8159,7 +8217,7 @@ bool submit_tested_work(struct thr_info *thr, struct work *work)
 	update_work_stats(thr, work);
 
 	if (!fulltest(work->hash, work->target)) {
-		applog(LOG_INFO, "%s %d: Share above target", thr->cgpu->drv->name,
+		applog(LOG_DEBUG, "%s %d: Share above target", thr->cgpu->drv->name,
 		       thr->cgpu->device_id);
 		return false;
 	}
@@ -8175,7 +8233,7 @@ static bool new_nonce(struct thr_info *thr, uint32_t nonce)
 	struct cgpu_info *cgpu = thr->cgpu;
 
 	if (unlikely(cgpu->last_nonce == nonce)) {
-		applog(LOG_INFO, "%s %d duplicate share detected as HW error",
+		applog(LOG_NOTICE, "%s %d duplicate share detected as HW error",
 		       cgpu->drv->name, cgpu->device_id);
 		return false;
 	}
@@ -8187,10 +8245,33 @@ static bool new_nonce(struct thr_info *thr, uint32_t nonce)
  * nonce submitted by this device. */
 bool submit_nonce(struct thr_info *thr, struct work *work, uint32_t nonce)
 {
+	struct cgpu_info *cgpu = thr->cgpu;
+
 	if (new_nonce(thr, nonce) && test_nonce(work, nonce))
 		submit_tested_work(thr, work);
 	else {
+		{
+			uint8_t test[44];
+			uint16_t crc = 0;
+
+			char *dat = bin2hex(work->data + 64, 12);
+			char *mid = bin2hex(work->midstate, 32);
+
+			applog(LOG_NOTICE, "test nonce mid:%s data:%s", mid, dat);
+			free(dat);
+			free(mid);
+
+			memcpy(test, work->midstate, 32);
+			memcpy(test + 32, work->data + 64, 12);
+
+			crc = crc16(test, 44);
+
+			applog(LOG_NOTICE, "test nonce work crc:%08x", crc);
+		}
+
 		inc_hw_errors(thr);
+		applog(LOG_NOTICE, "%s %d submit nonce in hw errors",
+					       cgpu->drv->name, cgpu->device_id);
 		return false;
 	}
 

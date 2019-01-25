@@ -2434,7 +2434,7 @@ static bool parse_notify(struct pool *pool, json_t *val)
 
 		if (opt_decode)
 			decode_exit(pool, cb);
-		applog(LOG_DEBUG, "Pool %d coinbase %s", pool->pool_no, cb);
+		applog(LOG_DEBUG, "Pool %d len %d coinbase %s", pool->pool_no,pool->coinbase_len,  cb);
 		free(cb);
 	}
 out_unlock:

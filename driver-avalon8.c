@@ -405,6 +405,8 @@ static int avalon8_init_pkg(struct avalon8_pkg *pkg, uint8_t type, uint8_t idx, 
 	pkg->opt = 0;
 	pkg->idx = idx;
 	pkg->cnt = cnt;
+	pkg->len[0] = 0x00;
+	pkg->len[1] = 0x20;
 
 	crc = crc16(pkg->data, AVA8_P_DATA_LEN);
 
@@ -521,7 +523,7 @@ static int decode_pkg(struct cgpu_info *avalon8, struct avalon8_ret *ar, int mod
 
 	unsigned short expected_crc;
 	unsigned short actual_crc;
-	uint32_t nonce, nonce2, ntime, miner, chip_id, tmp;
+	uint32_t nonce, nonce2, ntime, miner, chip_id, tmp, work_crc, fzx;
 	uint8_t job_id[2];
 	int pool_no;
 	uint32_t i;
@@ -560,6 +562,10 @@ static int decode_pkg(struct cgpu_info *avalon8, struct avalon8_ret *ar, int mod
 		job_id[1] = ar->data[17];
 		pool_no = (ar->data[18] | (ar->data[19] << 8));
 
+
+		memcpy(&fzx, ar->data + 16, 4);
+		memcpy(&work_crc, ar->data + 20, 4);
+
 		miner = be32toh(miner);
 		chip_id = (miner >> 16) & 0xffff;
 		miner &= 0xffff;
@@ -573,57 +579,61 @@ static int decode_pkg(struct cgpu_info *avalon8, struct avalon8_ret *ar, int mod
 		}
 		nonce2 = be32toh(nonce2);
 		nonce = be32toh(nonce);
+		work_crc = be32toh(work_crc);
+		fzx = be32toh(fzx);
 
 		if (ntime > info->max_ntime)
 			info->max_ntime = ntime;
 
-		applog(LOG_NOTICE, "%s-%d-%d: Found! P:%d - N2:%08x N:%08x NR:%d/%d [M:%d, A:%d, C:%d - MW: (%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64")]",
+		applog(LOG_NOTICE, "%s-%d-%d: Found! P:%d JD:%08x - N2:%08x N:%08x NR:%d/%d WC:%08x [M:%d, A:%d, C:%d]",
 		       avalon8->drv->name, avalon8->device_id, modular_id,
-		       pool_no, nonce2, nonce, ntime, info->max_ntime,
-		       miner, chip_id, nonce & 0x7f,
-		       info->chip_matching_work[modular_id][miner][0],
-		       info->chip_matching_work[modular_id][miner][1],
-		       info->chip_matching_work[modular_id][miner][2],
-		       info->chip_matching_work[modular_id][miner][3]);
+		       pool_no, fzx, nonce2, nonce, ntime, info->max_ntime, work_crc,
+		       miner, chip_id, nonce & 0x7f);
 
 		real_pool = pool = pools[pool_no];
 		if (job_idcmp(job_id, pool->swork.job_id)) {
 			if (!job_idcmp(job_id, pool_stratum0->swork.job_id)) {
-				applog(LOG_DEBUG, "%s-%d-%d: Match to previous stratum0! (%s)",
+				applog(LOG_NOTICE, "%s-%d-%d: Match to previous stratum0! (%s)",
 						avalon8->drv->name, avalon8->device_id, modular_id,
 						pool_stratum0->swork.job_id);
 				pool = pool_stratum0;
 			} else if (!job_idcmp(job_id, pool_stratum1->swork.job_id)) {
-				applog(LOG_DEBUG, "%s-%d-%d: Match to previous stratum1! (%s)",
+				applog(LOG_NOTICE, "%s-%d-%d: Match to previous stratum1! (%s)",
 						avalon8->drv->name, avalon8->device_id, modular_id,
 						pool_stratum1->swork.job_id);
 				pool = pool_stratum1;
 			} else if (!job_idcmp(job_id, pool_stratum2->swork.job_id)) {
-				applog(LOG_DEBUG, "%s-%d-%d: Match to previous stratum2! (%s)",
+				applog(LOG_NOTICE, "%s-%d-%d: Match to previous stratum2! (%s)",
 						avalon8->drv->name, avalon8->device_id, modular_id,
 						pool_stratum2->swork.job_id);
 				pool = pool_stratum2;
 			} else {
-				applog(LOG_ERR, "%s-%d-%d: Cannot match to any stratum! (%s)",
+				applog(LOG_NOTICE, "%s-%d-%d: Cannot match to any stratum! (%s)",
 						avalon8->drv->name, avalon8->device_id, modular_id,
 						pool->swork.job_id);
-				if (likely(thr))
+				if (likely(thr)) {
 					inc_hw_errors(thr);
+					applog(LOG_NOTICE, "%s-%d-%d: inc hw errors",
+						avalon8->drv->name, avalon8->device_id, modular_id);
+				}
 				info->hw_works_i[modular_id][miner]++;
 				break;
 			}
 		}
+		applog(LOG_DEBUG, "%s-%d-%d: job_id0 %s",
+			avalon8->drv->name, avalon8->device_id, modular_id, pool->swork.job_id);
 
 		/* Can happen during init sequence before add_cgpu */
 		if (unlikely(!thr))
 			break;
 
 		last_diff1 = avalon8->diff1;
-		if (!submit_nonce2_nonce(thr, pool, real_pool, nonce2, nonce, ntime))
+		if (!submit_nonce2_nonce(thr, pool, real_pool, nonce2, nonce, ntime, work_crc))
 			info->hw_works_i[modular_id][miner]++;
 		else {
 			info->diff1[modular_id] += (avalon8->diff1 - last_diff1);
 			info->chip_matching_work[modular_id][miner][chip_id]++;
+			info->total_get_nonce_sum++;
 		}
 		break;
 	case AVA8_P_STATUS:
@@ -652,6 +662,9 @@ static int decode_pkg(struct cgpu_info *avalon8, struct avalon8_ret *ar, int mod
 
 		memcpy(&tmp, ar->data + 24, 4);
 		info->error_crc[modular_id][ar->idx] += be32toh(tmp);
+
+		memcpy(&tmp, ar->data + 28, 4);
+		info->total_mm_nonce_sum = be32toh(tmp);
 		break;
 	case AVA8_P_STATUS_PMU:
 		/* TODO: decode ntc led from PMU */
@@ -930,13 +943,25 @@ static int avalon8_auc_xfer(struct cgpu_info *avalon8,
 	cgsleep_ms(opt_avalon8_aucxdelay / 4800 + 1);
 
 	rlen += 4;		/* Add 4 bytes IIC header */
-	err = usb_read(avalon8, (char *)rbuf, rlen, read, C_AVA8_READ);
-	if (err || *read != rlen || *read != rbuf[0]) {
-		applog(LOG_DEBUG, "%s-%d: AUC xfer %d, r(%d-%d-%d)!", avalon8->drv->name, avalon8->device_id, err, rlen - 4, *read, rbuf[0]);
-		hexdump(rbuf, rlen);
-		return -1;
+	if (!rlen) {
+		err = usb_read(avalon8, (char *)rbuf, 12, read, C_AVA8_READ);
+
+		err = usb_read(avalon8, (char *)(rbuf + 12), 36, read, C_AVA8_READ);
+		if (err || *read != rlen || *read != rbuf[0]) {
+			applog(LOG_DEBUG, "%s-%d: AUC xfer %d, r(%d-%d-%d)!", avalon8->drv->name, avalon8->device_id, err, rlen - 4, *read, rbuf[0]);
+			hexdump(rbuf, rlen);
+			return -1;
+		}
+		*read = rbuf[0] - 4;	/* Remove 4 bytes IIC header */
+	} else {
+		err = usb_read(avalon8, (char *)rbuf, rlen, read, C_AVA8_READ);
+		if (err || *read != rlen || *read != rbuf[0]) {
+			applog(LOG_DEBUG, "%s-%d: AUC xfer %d, r(%d-%d-%d)!", avalon8->drv->name, avalon8->device_id, err, rlen - 4, *read, rbuf[0]);
+			hexdump(rbuf, rlen);
+			return -1;
+		}
+		*read = rbuf[0] - 4;	/* Remove 4 bytes IIC header */
 	}
-	*read = rbuf[0] - 4;	/* Remove 4 bytes IIC header */
 out:
 	return err;
 }
@@ -1071,11 +1096,11 @@ static int avalon8_iic_xfer_pkg(struct cgpu_info *avalon8, uint8_t slave_addr,
 		if ((pkg->type != AVA8_P_DETECT) && err == -7 && !rcnt && rlen) {
 			avalon8_auc_init_pkg(wbuf, &iic_info, NULL, 0, rlen);
 			err = avalon8_auc_xfer(avalon8, wbuf, wbuf[0], &wcnt, rbuf, rlen, &rcnt);
-			applog(LOG_DEBUG, "%s-%d-%d: AUC read again!(type:0x%x, err:%d)", avalon8->drv->name, avalon8->device_id, slave_addr, pkg->type, err);
+			applog(LOG_NOTICE, "%s-%d-%d: AUC read again!(type:0x%x, err:%d)", avalon8->drv->name, avalon8->device_id, slave_addr, pkg->type, err);
 		}
 		if (err || rcnt != rlen) {
 			if (info->xfer_err_cnt++ == 100) {
-				applog(LOG_DEBUG, "%s-%d-%d: AUC xfer_err_cnt reach err = %d, rcnt = %d, rlen = %d",
+				applog(LOG_NOTICE, "%s-%d-%d: AUC xfer_err_cnt reach err = %d, rcnt = %d, rlen = %d",
 						avalon8->drv->name, avalon8->device_id, slave_addr,
 						err, rcnt, rlen);
 
@@ -1200,6 +1225,8 @@ static void avalon8_stratum_pkgs(struct cgpu_info *avalon8, struct pool *pool)
 	else
 		set_target(target, AVA8_DRV_DIFFMAX);
 
+	applog(LOG_NOTICE, "%s-%d: pool sdiff %f AVA8 diff %d", avalon8->drv->name, avalon8->device_id, pool->sdiff, AVA8_DRV_DIFFMAX);
+
 	memcpy(pkg.data, target, 32);
 	if (opt_debug) {
 		char *target_str;
@@ -1241,7 +1268,7 @@ static void avalon8_stratum_pkgs(struct cgpu_info *avalon8, struct pool *pool)
 	if (avalon8_send_bc_pkgs(avalon8, &pkg))
 		return;
 
-	applog(LOG_DEBUG, "%s-%d: Pool stratum message modified COINBASE: %d %d",
+	applog(LOG_NOTICE, "%s-%d: Pool stratum message modified COINBASE: %d %d",
 			avalon8->drv->name, avalon8->device_id,
 			a, b);
 	for (i = 1; i < a; i++) {
@@ -1542,6 +1569,8 @@ static void detect_modules(struct cgpu_info *avalon8)
 		info->temp_mm[i] = -273;
 		info->local_works[i] = 0;
 		info->hw_works[i] = 0;
+		info->total_get_nonce_sum = 0;
+		info->total_mm_nonce_sum = 0;
 
 		/*PID controller*/
 		info->pid_u[i] = opt_avalon8_fan_min;
@@ -1662,7 +1691,7 @@ static int polling(struct cgpu_info *avalon8)
 	return 0;
 }
 
-static void copy_pool_stratum(struct pool *pool_stratum, struct pool *pool)
+static int copy_pool_stratum(struct pool *pool_stratum, struct pool *pool)
 {
 	int i;
 	int merkles = pool->merkles, job_id_len;
@@ -1670,7 +1699,7 @@ static void copy_pool_stratum(struct pool *pool_stratum, struct pool *pool)
 	unsigned short crc;
 
 	if (!pool->swork.job_id)
-		return;
+		return 0;
 
 	if (pool_stratum->swork.job_id) {
 		job_id_len = strlen(pool->swork.job_id);
@@ -1678,7 +1707,7 @@ static void copy_pool_stratum(struct pool *pool_stratum, struct pool *pool)
 		job_id_len = strlen(pool_stratum->swork.job_id);
 
 		if (crc16((unsigned char *)pool_stratum->swork.job_id, job_id_len) == crc)
-			return;
+			return 2;
 	}
 
 	cg_wlock(&pool_stratum->data_lock);
@@ -1711,6 +1740,8 @@ static void copy_pool_stratum(struct pool *pool_stratum, struct pool *pool)
 	memcpy(pool_stratum->ntime, pool->ntime, sizeof(pool_stratum->ntime));
 	memcpy(pool_stratum->header_bin, pool->header_bin, sizeof(pool_stratum->header_bin));
 	cg_wunlock(&pool_stratum->data_lock);
+
+	return 1;
 }
 
 static void avalon8_init_setting(struct cgpu_info *avalon8, int addr)
@@ -1981,6 +2012,78 @@ static void avalon8_set_finish(struct cgpu_info *avalon8, int addr)
 	avalon8_iic_xfer_pkg(avalon8, addr, &send_pkg, NULL);
 }
 
+static void avalon8_sswork_update_flush(struct cgpu_info *avalon8)
+{
+	struct avalon8_info *info = avalon8->device_data;
+	struct thr_info *thr = avalon8->thr[0];
+	struct pool *pool;
+	int coinbase_len_posthash, coinbase_len_prehash;
+
+	cgtime(&info->last_stratum);
+	/*
+	 * NOTE: We need mark work_restart to private information,
+	 * So that it cann't reset by hash_driver_work
+	 */
+	if (thr->work_restart)
+		info->work_restart = thr->work_restart;
+	applog(LOG_NOTICE, "%s-%d: New stratum: restart: %d, update: %d flush",
+	       avalon8->drv->name, avalon8->device_id,
+	       thr->work_restart, thr->work_update);
+
+	/* Step 1: MM protocol check */
+	pool = current_pool();
+	if (!pool->has_stratum)
+		quit(1, "%s-%d: MM has to use stratum pools", avalon8->drv->name, avalon8->device_id);
+
+	applog(LOG_DEBUG, "zzzzzzzzzzzzzzzzzzz coinbase nonce2_offset %d", pool->nonce2_offset);
+	coinbase_len_prehash = pool->nonce2_offset - (pool->nonce2_offset % SHA256_BLOCK_SIZE);
+	coinbase_len_posthash = pool->coinbase_len - coinbase_len_prehash;
+
+	applog(LOG_DEBUG, "zzzzzzzzzzzzzzzzzzz coinbase len %d", pool->coinbase_len);
+	applog(LOG_DEBUG, "zzzzzzzzzzzzzzzzzzz coinbase len posthash %d", coinbase_len_posthash);
+	{
+		char *cb = bin2hex(pool->coinbase, pool->coinbase_len);
+
+		applog(LOG_DEBUG, "zzzzzzzzzzzzzzzzzzz coinbase %s", cb);
+		free(cb);
+	}
+
+	if (coinbase_len_posthash + SHA256_BLOCK_SIZE > AVA8_P_COINBASE_SIZE) {
+		applog(LOG_ERR, "%s-%d: MM pool modified coinbase length(%d) is more than %d",
+		       avalon8->drv->name, avalon8->device_id,
+		       coinbase_len_posthash + SHA256_BLOCK_SIZE, AVA8_P_COINBASE_SIZE);
+		return;
+	}
+	if (pool->merkles > AVA8_P_MERKLES_COUNT) {
+		applog(LOG_ERR, "%s-%d: MM merkles has to be less then %d", avalon8->drv->name, avalon8->device_id, AVA8_P_MERKLES_COUNT);
+		return;
+	}
+	if (pool->n2size < 3) {
+		applog(LOG_ERR, "%s-%d: MM nonce2 size has to be >= 3 (%d)", avalon8->drv->name, avalon8->device_id, pool->n2size);
+		return;
+	}
+	cg_wlock(&info->update_lock);
+
+	/* Step 2: Send out stratum pkgs */
+	cg_rlock(&pool->data_lock);
+	info->pool_no = pool->pool_no;
+	copy_pool_stratum(&info->pool2, &info->pool1);
+	copy_pool_stratum(&info->pool1, &info->pool0);
+	if (copy_pool_stratum(&info->pool0, pool) == 2) {
+		cg_runlock(&pool->data_lock);
+		cg_wunlock(&info->update_lock);
+		return;
+	}
+
+	avalon8_stratum_pkgs(avalon8, pool);
+	cg_runlock(&pool->data_lock);
+
+	/* Step 3: Send out finish pkg */
+	avalon8_stratum_finish(avalon8);
+	cg_wunlock(&info->update_lock);
+}
+
+
 static void avalon8_sswork_update(struct cgpu_info *avalon8)
 {
 	struct avalon8_info *info = avalon8->device_data;
@@ -2004,8 +2107,18 @@ static void avalon8_sswork_update(struct cgpu_info *avalon8)
 	if (!pool->has_stratum)
 		quit(1, "%s-%d: MM has to use stratum pools", avalon8->drv->name, avalon8->device_id);
 
+	applog(LOG_DEBUG, "fffffffffffffffffff coinbase nonce2_offset %d", pool->nonce2_offset);
 	coinbase_len_prehash = pool->nonce2_offset - (pool->nonce2_offset % SHA256_BLOCK_SIZE);
 	coinbase_len_posthash = pool->coinbase_len - coinbase_len_prehash;
+
+	applog(LOG_DEBUG, "fffffffffffffffffff coinbase len %d", pool->coinbase_len);
+	applog(LOG_DEBUG, "fffffffffffffffffff coinbase len posthash %d", coinbase_len_posthash);
+	{
+		char *cb = bin2hex(pool->coinbase, pool->coinbase_len);
+
+		applog(LOG_DEBUG, "fffffffffffffffffff coinbase %s", cb);
+		free(cb);
+	}
 
 	if (coinbase_len_posthash + SHA256_BLOCK_SIZE > AVA8_P_COINBASE_SIZE) {
 		applog(LOG_ERR, "%s-%d: MM pool modified coinbase length(%d) is more than %d",
@@ -2374,6 +2487,12 @@ static struct api_data *avalon8_api_stats(struct cgpu_info *avalon8)
 
 			statbuf[strlen(statbuf) - 1] = ']';
 		}
+
+		sprintf(buf, " MWSUM[%d]", info->total_get_nonce_sum);
+		strcat(statbuf, buf);
+
+		sprintf(buf, " MMSUM[%d]", info->total_mm_nonce_sum);
+		strcat(statbuf, buf);
 
 		sprintf(buf, " TA[%d]", info->total_asics[i]);
 		strcat(statbuf, buf);
@@ -2960,7 +3079,7 @@ struct device_drv avalon8_drv = {
 	.drv_detect = avalon8_detect,
 	.thread_prepare = avalon8_prepare,
 	.hash_work = hash_driver_work,
-	.flush_work = avalon8_sswork_update,
+	.flush_work = avalon8_sswork_update_flush,
 	.update_work = avalon8_sswork_update,
 	.scanwork = avalon8_scanhash,
 	.max_diff = AVA8_DRV_DIFFMAX,

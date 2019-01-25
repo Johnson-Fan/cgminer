@@ -62,7 +62,7 @@
 #define AVA8_DEFAULT_PMU_CNT	2
 #define AVA8_DEFAULT_CORE_VOLT_CNT	8
 
-#define AVA8_DEFAULT_POLLING_DELAY	20 /* ms */
+#define AVA8_DEFAULT_POLLING_DELAY	15 /* ms */
 #define AVA8_DEFAULT_NTIME_OFFSET	2
 
 #define AVA8_DEFAULT_SMARTSPEED_OFF 0
@@ -111,14 +111,14 @@
 #define AVA8_DEFAULT_IIC_DETECT	false
 
 #define AVA8_PWM_MAX	0x3FF
-#define AVA8_DRV_DIFFMAX	2700
+#define AVA8_DRV_DIFFMAX	512
 #define AVA8_ASIC_TIMEOUT_CONST	419430400 /* (2^32 * 1000) / (256 * 40) */
 
 #define AVA8_MODULE_DETECT_INTERVAL	30 /* 30 s */
 
 #define AVA8_AUC_VER_LEN	12	/* Version length: 12 (AUC-YYYYMMDD) */
 #define AVA8_AUC_SPEED		400000
-#define AVA8_AUC_XDELAY  	19200	/* 4800 = 1ms in AUC (11U14)  */
+#define AVA8_AUC_XDELAY  	28800	/* 4800 = 1ms in AUC (11U14)  */
 #define AVA8_AUC_P_SIZE		64
 
 #define AVA8_CONNECTER_AUC	1
@@ -130,7 +130,7 @@
 #define AVA8_H1	'C'
 #define AVA8_H2	'N'
 
-#define AVA8_P_COINBASE_SIZE	(6 * 1024 + 64)
+#define AVA8_P_COINBASE_SIZE	(1 * 1024 + 64)
 #define AVA8_P_MERKLES_COUNT	30
 
 #define AVA8_P_COUNT	40
@@ -222,8 +222,9 @@ struct avalon8_pkg {
 	uint8_t opt;
 	uint8_t idx;
 	uint8_t cnt;
+	uint8_t len[2];
 	uint8_t data[32];
-	uint8_t crc[2];
+	uint8_t crc[4];
 };
 #define avalon8_ret avalon8_pkg
 
@@ -323,6 +324,9 @@ struct avalon8_info {
 	uint64_t hw_works[AVA8_DEFAULT_MODULARS];
 	uint64_t hw_works_i[AVA8_DEFAULT_MODULARS][AVA8_DEFAULT_MINER_CNT];
 	uint64_t chip_matching_work[AVA8_DEFAULT_MODULARS][AVA8_DEFAULT_MINER_CNT][AVA8_DEFAULT_ASIC_MAX];
+
+	uint32_t total_get_nonce_sum;
+	uint32_t total_mm_nonce_sum;
 
 	uint32_t error_code[AVA8_DEFAULT_MODULARS][AVA8_DEFAULT_MINER_CNT + 1];
 	uint32_t error_crc[AVA8_DEFAULT_MODULARS][AVA8_DEFAULT_MINER_CNT];
