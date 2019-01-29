@@ -125,7 +125,7 @@
 #define AVA8_CONNECTER_IIC	2
 
 /* avalon8 protocol package type from MM protocol.h */
-#define AVA8_MM_VER_LEN	15
+#define AVA8_MM_VER_LEN	18
 #define AVA8_MM_DNA_LEN	8
 #define AVA8_H1	'C'
 #define AVA8_H2	'N'
