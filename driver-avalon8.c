@@ -1981,6 +1981,66 @@ static void avalon8_set_finish(struct cgpu_info *avalon8, int addr)
 	avalon8_iic_xfer_pkg(avalon8, addr, &send_pkg, NULL);
 }
 
+static void avalon8_sswork_flush(struct cgpu_info *avalon8)
+{
+	struct avalon8_info *info = avalon8->device_data;
+	struct thr_info *thr = avalon8->thr[0];
+	struct pool *pool;
+	int coinbase_len_posthash, coinbase_len_prehash;
+
+	applog(LOG_NOTICE, "%s-%d: Flush stratum: restart: %d, update: %d",
+						avalon8->drv->name, avalon8->device_id,
+						thr->work_restart, thr->work_update);
+
+	if (thr->work_restart)
+		info->work_restart = true;
+
+	if (!thr->work_update)
+		return;
+
+	thr->work_update = false;
+
+	cgtime(&info->last_stratum);
+
+	pool = current_pool();
+	if (!pool->has_stratum)
+		quit(1, "%s-%d: MM has to use stratum pools", avalon8->drv->name, avalon8->device_id);
+
+	coinbase_len_prehash = pool->nonce2_offset - (pool->nonce2_offset % SHA256_BLOCK_SIZE);
+	coinbase_len_posthash = pool->coinbase_len - coinbase_len_prehash;
+
+	if (coinbase_len_posthash + SHA256_BLOCK_SIZE > AVA8_P_COINBASE_SIZE) {
+		applog(LOG_ERR, "%s-%d: MM pool modified coinbase length(%d) is more than %d",
+		       avalon8->drv->name, avalon8->device_id,
+		       coinbase_len_posthash + SHA256_BLOCK_SIZE, AVA8_P_COINBASE_SIZE);
+		return;
+	}
+
+	if (pool->merkles > AVA8_P_MERKLES_COUNT) {
+		applog(LOG_ERR, "%s-%d: MM merkles has to be less then %d", avalon8->drv->name, avalon8->device_id, AVA8_P_MERKLES_COUNT);
+		return;
+	}
+
+	if (pool->n2size < 3) {
+		applog(LOG_ERR, "%s-%d: MM nonce2 size has to be >= 3 (%d)", avalon8->drv->name, avalon8->device_id, pool->n2size);
+		return;
+	}
+
+	cg_wlock(&info->update_lock);
+
+	cg_rlock(&pool->data_lock);
+	info->pool_no = pool->pool_no;
+	copy_pool_stratum(&info->pool2, &info->pool1);
+	copy_pool_stratum(&info->pool1, &info->pool0);
+	copy_pool_stratum(&info->pool0, pool);
+	avalon8_stratum_pkgs(avalon8, pool);
+	cg_runlock(&pool->data_lock);
+
+	avalon8_stratum_finish(avalon8);
+
+	cg_wunlock(&info->update_lock);
+}
+
 static void avalon8_sswork_update(struct cgpu_info *avalon8)
 {
 	struct avalon8_info *info = avalon8->device_data;
@@ -2960,7 +3020,7 @@ struct device_drv avalon8_drv = {
 	.drv_detect = avalon8_detect,
 	.thread_prepare = avalon8_prepare,
 	.hash_work = hash_driver_work,
-	.flush_work = avalon8_sswork_update,
+	.flush_work = avalon8_sswork_flush,
 	.update_work = avalon8_sswork_update,
 	.scanwork = avalon8_scanhash,
 	.max_diff = AVA8_DRV_DIFFMAX,
