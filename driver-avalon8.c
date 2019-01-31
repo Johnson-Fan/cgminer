@@ -2049,17 +2049,11 @@ static void avalon8_sswork_update(struct cgpu_info *avalon8)
 	int coinbase_len_posthash, coinbase_len_prehash;
 
 	cgtime(&info->last_stratum);
-	/*
-	 * NOTE: We need mark work_restart to private information,
-	 * So that it cann't reset by hash_driver_work
-	 */
-	if (thr->work_restart)
-		info->work_restart = thr->work_restart;
-	applog(LOG_NOTICE, "%s-%d: New stratum: restart: %d, update: %d",
-	       avalon8->drv->name, avalon8->device_id,
-	       thr->work_restart, thr->work_update);
 
-	/* Step 1: MM protocol check */
+	applog(LOG_NOTICE, "%s-%d: New stratum: restart: %d, update: %d",
+						avalon8->drv->name, avalon8->device_id,
+						thr->work_restart, thr->work_update);
+
 	pool = current_pool();
 	if (!pool->has_stratum)
 		quit(1, "%s-%d: MM has to use stratum pools", avalon8->drv->name, avalon8->device_id);
@@ -2073,28 +2067,29 @@ static void avalon8_sswork_update(struct cgpu_info *avalon8)
 		       coinbase_len_posthash + SHA256_BLOCK_SIZE, AVA8_P_COINBASE_SIZE);
 		return;
 	}
+
 	if (pool->merkles > AVA8_P_MERKLES_COUNT) {
 		applog(LOG_ERR, "%s-%d: MM merkles has to be less then %d", avalon8->drv->name, avalon8->device_id, AVA8_P_MERKLES_COUNT);
 		return;
 	}
+
 	if (pool->n2size < 3) {
 		applog(LOG_ERR, "%s-%d: MM nonce2 size has to be >= 3 (%d)", avalon8->drv->name, avalon8->device_id, pool->n2size);
 		return;
 	}
+
 	cg_wlock(&info->update_lock);
 
-	/* Step 2: Send out stratum pkgs */
 	cg_rlock(&pool->data_lock);
 	info->pool_no = pool->pool_no;
 	copy_pool_stratum(&info->pool2, &info->pool1);
 	copy_pool_stratum(&info->pool1, &info->pool0);
 	copy_pool_stratum(&info->pool0, pool);
-
 	avalon8_stratum_pkgs(avalon8, pool);
 	cg_runlock(&pool->data_lock);
 
-	/* Step 3: Send out finish pkg */
 	avalon8_stratum_finish(avalon8);
+
 	cg_wunlock(&info->update_lock);
 }
 
