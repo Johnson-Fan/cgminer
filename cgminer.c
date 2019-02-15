@@ -309,7 +309,7 @@ char *opt_bitmine_a1_options = NULL;
 #include "dragonmint_t1.h"
 char *opt_dragonmint_t1_options = NULL;
 int opt_T1Pll[MCOMPAT_CONFIG_MAX_CHAIN_NUM] = {
-	DEFAULT_PLL, DEFAULT_PLL, DEFAULT_PLL, DEFAULT_PLL, 
+	DEFAULT_PLL, DEFAULT_PLL, DEFAULT_PLL, DEFAULT_PLL,
 	DEFAULT_PLL, DEFAULT_PLL, DEFAULT_PLL, DEFAULT_PLL
 };
 int opt_T1Vol[MCOMPAT_CONFIG_MAX_CHAIN_NUM] = {
@@ -1835,7 +1835,7 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_ARG("--version-file",
 	set_version_path, NULL, opt_hidden,
 	"Set miner version file"),
-	
+
 	OPT_WITHOUT_ARG("--bitmain-fan-ctrl",
 	opt_set_bool, &opt_bitmain_fan_ctrl,
 	"Enable bitmain miner fan controlling"),
