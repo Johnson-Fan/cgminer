@@ -576,6 +576,7 @@ static int decode_pkg(struct cgpu_info *avalon10, struct avalon10_ret *ar, int m
 	unsigned short expected_crc;
 	unsigned short actual_crc;
 	uint32_t nonce, nonce2, ntime, miner, chip_id, tmp;
+	uint32_t micro_job_id;
 	uint8_t job_id[2];
 	int pool_no;
 	uint32_t i;
@@ -615,6 +616,9 @@ static int decode_pkg(struct cgpu_info *avalon10, struct avalon10_ret *ar, int m
 		job_id[0] = ar->data[16];
 		job_id[1] = ar->data[17];
 		pool_no = (ar->data[18] | (ar->data[19] << 8));
+
+		memcpy(&micro_job_id, ar->data + 20, 4);
+		micro_job_id = be32toh(micro_job_id);
 
 		miner = be32toh(miner);
 		chip_id = (miner >> 16) & 0xffff;
