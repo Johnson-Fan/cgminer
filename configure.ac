@@ -239,6 +239,7 @@ AC_ARG_ENABLE([avalon10],
 	)
 if test "x$avalon10" = xyes; then
 	AC_DEFINE([USE_AVALON10], [1], [Defined to 1 if Avalon10 support is wanted])
+	AC_DEFINE([USE_VMASK], [1], [Defined to 1 if version mask rolling is wanted])
 fi
 AM_CONDITIONAL([HAS_AVALON10], [test x$avalon10 = xyes])
 
