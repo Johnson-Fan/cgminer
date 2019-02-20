@@ -26,7 +26,6 @@ int opt_avalon10_fan_max = AVA10_DEFAULT_FAN_MAX;
 int opt_avalon10_voltage_level = AVA10_INVALID_VOLTAGE_LEVEL;
 int opt_avalon10_voltage_level_offset = AVA10_DEFAULT_VOLTAGE_LEVEL_OFFSET;
 
-int opt_avalon10_asic_otp = AVA10_INVALID_ASIC_OTP;
 static uint8_t opt_avalon10_cycle_hit_flag;
 
 int opt_avalon10_freq[AVA10_DEFAULT_PLL_CNT] =
@@ -374,24 +373,6 @@ char *set_avalon10_voltage_level_offset(char *arg)
        return NULL;
 }
 
-char *set_avalon10_asic_otp(char *arg)
-{
-	int val, ret;
-
-	ret = sscanf(arg, "%d", &val);
-	if (ret < 1)
-		return "No value passed to avalon10-cinfo-asic";
-
-	if (val < 0 || val > (AVA10_DEFAULT_ASIC_MAX - 1))
-		return "Invalid value passed to avalon10-cinfo-asic";
-
-	opt_avalon10_asic_otp = val;
-
-	opt_avalon10_cycle_hit_flag = 0;
-
-	return NULL;
-}
-
 static int avalon10_init_pkg(struct avalon10_pkg *pkg, uint8_t type, uint8_t idx, uint8_t cnt)
 {
 	unsigned short crc;
@@ -713,54 +694,6 @@ static int decode_pkg(struct cgpu_info *avalon10, struct avalon10_ret *ar, int m
 		memcpy(&tmp, ar->data + 24, 4);
 		info->error_crc[modular_id][ar->idx] += be32toh(tmp);
 		break;
-	case AVA10_P_STATUS_OTP:
-		if (opt_avalon10_cycle_hit_flag)
-			break;
-
-		applog(LOG_DEBUG, "%s-%d-%d: AVA10_P_STATUS_OTP", avalon10->drv->name, avalon10->device_id, modular_id);
-
-		/* ASIC reading cycle limit hit */
-		if (ar->data[AVA10_OTP_INDEX_CYCLE_HIT]) {
-			applog(LOG_DEBUG, "%s-%d-%d: AVA10_P_STATUS_OTP, OTP read cycle hit!", avalon10->drv->name, avalon10->device_id, modular_id);
-			opt_avalon10_cycle_hit_flag = 1;
-			break;
-		}
-
-		miner_id = ar->idx;
-		if (miner_id > AVA10_DEFAULT_MINER_CNT)
-			break;
-
-		/* the reading step on MM side, 0:byte 3-0, 1:byte 7-4, 2:byte 11-8, 3:byte 15-12 */
-		switch (ar->data[AVA10_OTP_INDEX_READ_STEP]) {
-		case 0:
-			memcpy(info->otp_info[modular_id][miner_id] + AVA10_OTP_INFO_LOTIDCRC_OFFSET, ar->data + AVA10_OTP_INFO_LOTIDCRC_OFFSET, 4);
-			break;
-		case 1:
-			memcpy(info->otp_info[modular_id][miner_id] + AVA10_OTP_INFO_LOTIDCRC_OFFSET + 4, ar->data + AVA10_OTP_INFO_LOTIDCRC_OFFSET + 4, 2);
-			break;
-		case 2:
-			memcpy(info->otp_info[modular_id][miner_id] + AVA10_OTP_INFO_LOTID_OFFSET, ar->data + AVA10_OTP_INFO_LOTID_OFFSET, 4);
-			break;
-		case 3:
-			memcpy(info->otp_info[modular_id][miner_id] + AVA10_OTP_INFO_LOTID_OFFSET + 4, ar->data + AVA10_OTP_INFO_LOTID_OFFSET + 4, 4);
-			break;
-		case 4:
-			memcpy(info->otp_info[modular_id][miner_id] + AVA10_OTP_INFO_LOTID_OFFSET + 8, ar->data + AVA10_OTP_INFO_LOTID_OFFSET + 8, 4);
-			break;
-		case 5:
-			memcpy(info->otp_info[modular_id][miner_id] + AVA10_OTP_INFO_LOTID_OFFSET + 12, ar->data + AVA10_OTP_INFO_LOTID_OFFSET + 12, 4);
-			break;
-		case 6:
-			memcpy(info->otp_info[modular_id][miner_id] + AVA10_OTP_INFO_LOTID_OFFSET + 16, ar->data + AVA10_OTP_INFO_LOTID_OFFSET + 16, 4);
-			break;
-		default:
-			break;
-		}
-
-		/* get the data behind AVA10_OTP_INDEX_READ_STEP for later displaying use */
-		memcpy(info->otp_info[modular_id][miner_id] + AVA10_OTP_INDEX_READ_STEP, ar->data + AVA10_OTP_INDEX_READ_STEP, 4);
-
-		break;
 	case AVA10_P_STATUS_VOLT:
 		applog(LOG_DEBUG, "%s-%d-%d: AVA10_P_STATUS_VOLT", avalon10->drv->name, avalon10->device_id, modular_id);
 		memcpy(&get_vcore, ar->data, 2);
@@ -842,10 +775,6 @@ static int decode_pkg(struct cgpu_info *avalon10, struct avalon10_ret *ar, int m
 		applog(LOG_DEBUG, "%s-%d-%d: AVA10_P_STATUS_FAC", avalon10->drv->name, avalon10->device_id, modular_id);
 		info->factory_info[modular_id][0] = ar->data[0];
 		info->factory_info[modular_id][AVA10_DEFAULT_FACTORY_INFO_CNT] = ar->data[1];
-		break;
-	case AVA10_P_STATUS_OC:
-		applog(LOG_DEBUG, "%s-%d-%d: AVA10_P_STATUS_OC", avalon10->drv->name, avalon10->device_id, modular_id);
-		info->overclocking_info[0] = ar->data[0];
 		break;
 	default:
 		applog(LOG_DEBUG, "%s-%d-%d: Unknown response %x", avalon10->drv->name, avalon10->device_id, modular_id, ar->type);
@@ -1566,11 +1495,6 @@ static void detect_modules(struct cgpu_info *avalon10)
 
 			for (k = 0; k < AVA10_DEFAULT_PLL_CNT; k++)
 				info->set_frequency[i][j][k] = avalon10_dev_table[dev_index].set_freq[k];
-
-			if (AVA10_INVALID_ASIC_OTP == opt_avalon10_asic_otp)
-				info->set_asic_otp[i][j] = 0; /* default asic: 0 */
-			else
-				info->set_asic_otp[i][j] = opt_avalon10_asic_otp;
 		}
 		info->get_voltage[i][0] = 0;
 
@@ -1848,36 +1772,6 @@ static void avalon10_set_voltage_level(struct cgpu_info *avalon10, int addr, uns
 		avalon10_iic_xfer_pkg(avalon10, addr, &send_pkg, NULL);
 }
 
-static void avalon10_set_asic_otp(struct cgpu_info *avalon10, int addr, unsigned int asic[])
-{
-	struct avalon10_info *info = avalon10->device_data;
-	struct avalon10_pkg send_pkg;
-	uint32_t tmp, core_sel;
-	uint8_t i;
-
-	memset(send_pkg.data, 0, AVA10_P_DATA_LEN);
-
-	/* NOTE: miner_count should <= 8 */
-	for (i = 0; i < info->miner_count[addr]; i++) {
-		if (asic[i] < 0)
-			asic[i] = 0;
-		else if (asic[i] > (AVA10_DEFAULT_ASIC_MAX -1))
-			asic[i] = AVA10_DEFAULT_ASIC_MAX - 1;
-		tmp = be32toh(asic[i]);
-		memcpy(send_pkg.data + i * 4, &tmp, 4);
-	}
-	applog(LOG_DEBUG, "%s-%d-%d: avalon10 set asic for otp reading %d, (%d-%d)",
-			avalon10->drv->name, avalon10->device_id, addr,
-			i, asic[0], asic[info->miner_count[addr] - 1]);
-
-	/* Package the data */
-	avalon10_init_pkg(&send_pkg, AVA10_P_SET_ASIC_OTP, 1, 1);
-	if (addr == AVA10_MODULE_BROADCAST)
-		avalon10_send_bc_pkgs(avalon10, &send_pkg);
-	else
-		avalon10_iic_xfer_pkg(avalon10, addr, &send_pkg, NULL);
-}
-
 static void avalon10_set_freq(struct cgpu_info *avalon10, int addr, int miner_id, int asic_id, unsigned int freq[])
 {
 	struct avalon10_info *info = avalon10->device_data;
@@ -1938,24 +1832,6 @@ static void avalon10_set_factory_info(struct cgpu_info *avalon10, int addr, uint
 
 	/* Package the data */
 	avalon10_init_pkg(&send_pkg, AVA10_P_SET_FAC, 1, 1);
-	if (addr == AVA10_MODULE_BROADCAST)
-		avalon10_send_bc_pkgs(avalon10, &send_pkg);
-	else
-		avalon10_iic_xfer_pkg(avalon10, addr, &send_pkg, NULL);
-}
-
-static void avalon10_set_overclocking_info(struct cgpu_info *avalon10, int addr, uint8_t value[])
-{
-	struct avalon10_pkg send_pkg;
-	uint8_t i;
-
-	memset(send_pkg.data, 0, AVA10_P_DATA_LEN);
-
-	for (i = 0; i < AVA10_DEFAULT_OVERCLOCKING_CNT; i++)
-		send_pkg.data[i] = value[i];
-
-	/* Package the data */
-	avalon10_init_pkg(&send_pkg, AVA10_P_SET_OC, 1, 1);
 	if (addr == AVA10_MODULE_BROADCAST)
 		avalon10_send_bc_pkgs(avalon10, &send_pkg);
 	else
@@ -2234,7 +2110,6 @@ static int64_t avalon10_scanhash(struct thr_info *thr)
 		if (update_settings) {
 			cg_wlock(&info->update_lock);
 			avalon10_set_voltage_level(avalon10, i, info->set_voltage_level[i]);
-			avalon10_set_asic_otp(avalon10, i, info->set_asic_otp[i]);
 			for (j = 0; j < info->miner_count[i]; j++)
 				avalon10_set_freq(avalon10, i, j, 0, info->set_frequency[i][j]);
 			if (opt_avalon10_smart_speed)
@@ -2452,9 +2327,6 @@ static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 			strcat(statbuf, buf);
 			statbuf[strlen(statbuf) - 1] = ']';
 
-			sprintf(buf, " OC[%d]", info->overclocking_info[0]);
-			strcat(statbuf, buf);
-
 			for (j = 0; j < info->miner_count[i]; j++) {
 				sprintf(buf, " SF%d[", j);
 				strcat(statbuf, buf);
@@ -2560,19 +2432,6 @@ static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 					strcat(statbuf, buf);
 				}
 				statbuf[strlen(statbuf) - 1] = ']';
-			}
-
-			for (k = 0; k < info->miner_count[i]; k++) {
-				sprintf(buf, " CINFO%02d[", k);
-				strcat(statbuf, buf);
-
-				for (m = 0; m < 23; m++) {
-					sprintf(buf, "%02x", info->otp_info[i][k][m]);
-					strcat(statbuf, buf);
-				}
-
-				sprintf(buf, "]");
-				strcat(statbuf, buf);
 			}
 		}
 
@@ -2802,28 +2661,6 @@ char *set_avalon10_factory_info(struct cgpu_info *avalon10, char *arg)
 	return NULL;
 }
 
-char *set_avalon10_overclocking_info(struct cgpu_info *avalon10, char *arg)
-{
-	struct avalon10_info *info = avalon10->device_data;
-	int val;
-
-	if (!(*arg))
-		return NULL;
-
-	sscanf(arg, "%d", &val);
-
-	if (val != AVA10_DEFAULT_OVERCLOCKING_OFF && val != AVA10_DEFAULT_OVERCLOCKING_ON)
-		return "Invalid value passed to set_avalon10_overclocking_info";
-
-	info->overclocking_info[0] = val;
-	avalon10_set_overclocking_info(avalon10, 0, (uint8_t *)info->overclocking_info);
-
-	applog(LOG_NOTICE, "%s-%d: Update Overclocking info %d",
-		avalon10->drv->name, avalon10->device_id, val);
-
-	return NULL;
-}
-
 char *set_avalon10_adjust_voltage_info(struct cgpu_info *avalon10, char *arg)
 {
 	struct avalon10_info *info = avalon10->device_data;
@@ -2993,15 +2830,6 @@ static char *avalon10_set_device(struct cgpu_info *avalon10, char *option, char 
 		info->reboot[val] = true;
 
 		return NULL;
-	}
-
-	if (strcasecmp(option, "overclocking") == 0) {
-		if (!setting || !*setting) {
-			sprintf(replybuf, "missing overclocking info");
-			return replybuf;
-		}
-
-		return set_avalon10_overclocking_info(avalon10, setting);
 	}
 
 	if (strcasecmp(option, "adjust-voltage") == 0) {

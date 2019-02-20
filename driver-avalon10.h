@@ -16,8 +16,6 @@
 
 #ifdef USE_AVALON10
 
-#define AVA10_FREQUENCY_MAX		1404
-
 #define AVA10_DEFAULT_FAN_MIN		5 /* % */
 #define AVA10_DEFAULT_FAN_MAX		100
 
@@ -34,8 +32,6 @@
 #define AVA10_DEFAULT_VOLTAGE_LEVEL_OFFSET	0
 #define AVA10_DEFAULT_VOLTAGE_LEVEL_OFFSET_MAX	1
 
-#define AVA10_INVALID_ASIC_OTP	-1
-
 #define AVA10_DEFAULT_FACTORY_INFO_0_MIN		0
 #define AVA10_DEFAULT_FACTORY_INFO_0		0
 #define AVA10_DEFAULT_FACTORY_INFO_0_MAX		35
@@ -44,13 +40,7 @@
 
 #define AVA10_DEFAULT_FACTORY_INFO_1_CNT		3
 
-#define AVA10_DEFAULT_OVERCLOCKING_OFF	0
-#define AVA10_DEFAULT_OVERCLOCKING_ON	1
-
 #define AVA10_DEFAULT_FREQUENCY_0M	0
-#define AVA10_DEFAULT_FREQUENCY_450M	450
-#define AVA10_DEFAULT_FREQUENCY_500M	500
-#define AVA10_DEFAULT_FREQUENCY_550M	550
 #define AVA10_DEFAULT_FREQUENCY_462M	462
 #define AVA10_DEFAULT_FREQUENCY_512M	512
 #define AVA10_DEFAULT_FREQUENCY_562M	562
@@ -65,7 +55,6 @@
 #define AVA10_DEFAULT_CORE_VOLT_CNT	8
 
 #define AVA10_DEFAULT_POLLING_DELAY	20 /* ms */
-#define AVA10_DEFAULT_NTIME_OFFSET	2
 
 #define AVA10_DEFAULT_SMARTSPEED_OFF	0
 #define AVA10_DEFAULT_SMARTSPEED_MODE1	1
@@ -127,8 +116,6 @@
 #define AVA10_P_COUNT		40
 #define AVA10_P_DATA_LEN		32
 
-#define AVA10_OTP_LEN	        32
-
 /* Broadcase with block iic_write*/
 #define AVA10_P_DETECT		0x10
 
@@ -151,7 +138,6 @@
 #define AVA10_P_SET_SS		0x26
 /* 0x27 reserved */
 #define AVA10_P_SET_FAC		0x28
-#define AVA10_P_SET_OC		0x29
 
 /* Have to send with I2C address */
 #define AVA10_P_POLLING		0x30
@@ -168,13 +154,9 @@
 #define AVA10_P_STATUS_VOLT	0x46
 #define AVA10_P_STATUS_POWER	0x48
 #define AVA10_P_STATUS_PLL	0x49
-#define AVA10_P_STATUS_LOG	0x4a
 #define AVA10_P_STATUS_ASIC	0x4b
 #define AVA10_P_STATUS_PVT	0x4c
 #define AVA10_P_STATUS_FAC	0x4d
-#define AVA10_P_STATUS_OC	0x4e
-#define AVA10_P_STATUS_OTP	0x4f
-#define AVA10_P_SET_ASIC_OTP	0x50
 #define AVA10_P_SET_ADJUST_VOLT	0x51
 
 #define AVA10_MODULE_BROADCAST	0
@@ -192,14 +174,6 @@
 #define AVA10_DEFAULT_FACTORY_INFO_CNT	(AVA10_DEFAULT_FACTORY_INFO_0_CNT + AVA10_DEFAULT_FACTORY_INFO_1_CNT)
 
 #define AVA10_DEFAULT_POWER_INFO_CNT	6
-
-#define AVA10_DEFAULT_OVERCLOCKING_CNT	1
-
-#define AVA10_OTP_INDEX_READ_STEP   	27
-#define AVA10_OTP_INDEX_ASIC_NUM		28
-#define AVA10_OTP_INDEX_CYCLE_HIT	29
-#define AVA10_OTP_INFO_LOTIDCRC_OFFSET	0
-#define AVA10_OTP_INFO_LOTID_OFFSET  	6
 
 struct avalon10_pkg {
 	uint8_t head[2];
@@ -259,8 +233,6 @@ struct avalon10_info {
 	uint32_t total_asics[AVA10_DEFAULT_MODULARS];
 	uint32_t max_ntime; /* Maximum: 7200 */
 
-	uint8_t otp_info[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_MINER_CNT][AVA10_OTP_LEN + 1];
-
 	int mod_type[AVA10_DEFAULT_MODULARS];
 	uint8_t miner_count[AVA10_DEFAULT_MODULARS];
 	uint8_t asic_count[AVA10_DEFAULT_MODULARS];
@@ -292,15 +264,12 @@ struct avalon10_info {
 	uint32_t set_frequency[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_MINER_CNT][AVA10_DEFAULT_PLL_CNT];
 	uint32_t get_frequency[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_MINER_CNT][AVA10_DEFAULT_ASIC_MAX][AVA10_DEFAULT_PLL_CNT];
 
-	int set_asic_otp[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_MINER_CNT];
-
 	uint16_t get_voltage[AVA10_DEFAULT_MODULARS][1]; /* Output is the same */
 	uint32_t get_pll[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_MINER_CNT][AVA10_DEFAULT_PLL_CNT];
 
 	uint32_t get_asic[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_MINER_CNT][AVA10_DEFAULT_ASIC_MAX][6];
 
 	int8_t factory_info[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_FACTORY_INFO_CNT + 1];
-	int8_t overclocking_info[AVA10_DEFAULT_OVERCLOCKING_CNT];
 
 	uint64_t local_works[AVA10_DEFAULT_MODULARS];
 	uint64_t local_works_i[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_MINER_CNT];
@@ -313,9 +282,6 @@ struct avalon10_info {
 	uint8_t error_polling_cnt[AVA10_DEFAULT_MODULARS];
 
 	uint64_t diff1[AVA10_DEFAULT_MODULARS];
-
-	uint16_t vin_adc_ratio[AVA10_DEFAULT_MODULARS];
-	uint16_t vout_adc_ratio[AVA10_DEFAULT_MODULARS];
 
 	uint16_t power_info[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_POWER_INFO_CNT];
 
@@ -337,7 +303,6 @@ struct avalon10_dev_description {
 	uint8_t asic_count;	/* asic count each miner, it should not great than AVA10_DEFAULT_ASIC_MAX */
 	int set_voltage_level;
 	uint16_t set_freq[AVA10_DEFAULT_PLL_CNT];
-	int set_asic_otp;
 };
 
 #define AVA10_WRITE_SIZE (sizeof(struct avalon10_pkg))
@@ -350,7 +315,6 @@ extern char *set_avalon10_fan(char *arg);
 extern char *set_avalon10_freq(char *arg);
 extern char *set_avalon10_voltage_level(char *arg);
 extern char *set_avalon10_voltage_level_offset(char *arg);
-extern char *set_avalon10_asic_otp(char *arg);
 extern int opt_avalon10_temp_target;
 extern int opt_avalon10_polling_delay;
 extern int opt_avalon10_aucspeed;
