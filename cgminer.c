@@ -7791,7 +7791,7 @@ void set_target(unsigned char *dest_target, double diff)
 	cg_memcpy(dest_target, target, 32);
 }
 
-#if defined (USE_AVALON2) || defined (USE_AVALON4) || defined (USE_AVALON7) || defined (USE_AVALON8) || defined (USE_AVALON10) || defined (USE_AVALON_MINER) || defined (USE_HASHRATIO)
+#if defined (USE_AVALON2) || defined (USE_AVALON4) || defined (USE_AVALON7) || defined (USE_AVALON8) || defined (USE_AVALON_MINER) || defined (USE_HASHRATIO)
 bool submit_nonce2_nonce(struct thr_info *thr, struct pool *pool, struct pool *real_pool,
 			 uint32_t nonce2, uint32_t nonce,  uint32_t ntime)
 {
@@ -7815,6 +7815,44 @@ bool submit_nonce2_nonce(struct thr_info *thr, struct pool *pool, struct pool *r
 	work->thr_id = thr_id;
 	work->work_block = work_block;
 	work->pool->works++;
+
+	work->mined = true;
+	work->device_diff = MIN(drv->max_diff, work->work_difficulty);
+	work->device_diff = MAX(drv->min_diff, work->device_diff);
+
+	ret = submit_nonce(thr, work, nonce);
+	free_work(work);
+	return ret;
+}
+#endif
+
+#if defined (USE_AVALON10)
+bool submit_nonce2_nonce(struct thr_info *thr, struct pool *pool, struct pool *real_pool,
+			 uint32_t nonce2, uint32_t nonce,  uint32_t ntime, uint32_t micro_job_id)
+{
+	const int thr_id = thr->id;
+	struct cgpu_info *cgpu = thr->cgpu;
+	struct device_drv *drv = cgpu->drv;
+	struct work *work = make_work();
+	bool ret;
+
+	cg_wlock(&pool->data_lock);
+	pool->nonce2 = nonce2;
+	cg_wunlock(&pool->data_lock);
+
+	gen_stratum_work(pool, work);
+	roll_work_ntime(work, ntime);
+
+	work->pool = real_pool;
+	/* Inherit the sdiff from the original stratum */
+	work->sdiff = pool->sdiff;
+
+	work->thr_id = thr_id;
+	work->work_block = work_block;
+	work->pool->works++;
+
+	work->micro_job_id = 1 << micro_job_id;
+	memcpy(work->data, &pool->vmask_001[work->micro_job_id], 4);
 
 	work->mined = true;
 	work->device_diff = MIN(drv->max_diff, work->work_difficulty);
