@@ -140,6 +140,7 @@
 #define AVA10_P_HEADER		0x15
 #define AVA10_P_TARGET		0x16
 #define AVA10_P_JOB_FIN		0x17
+#define AVA10_P_VMASK		0x19
 
 /* Broadcase or with I2C address */
 #define AVA10_P_SET		0x20
