@@ -2033,17 +2033,10 @@ static void avalon10_sswork_update(struct cgpu_info *avalon10)
 	int coinbase_len_posthash, coinbase_len_prehash;
 
 	cgtime(&info->last_stratum);
-	/*
-	 * NOTE: We need mark work_restart to private information,
-	 * So that it cann't reset by hash_driver_work
-	 */
-	if (thr->work_restart)
-		info->work_restart = thr->work_restart;
-	applog(LOG_NOTICE, "%s-%d: New stratum: restart: %d, update: %d",
-		avalon10->drv->name, avalon10->device_id,
-		thr->work_restart, thr->work_update);
 
-	/* Step 1: MM protocol check */
+	applog(LOG_NOTICE, "%s-%d: New stratum: restart: %d, update: %d", avalon10->drv->name, avalon10->device_id,
+										thr->work_restart, thr->work_update);
+
 	pool = current_pool();
 	if (!pool->has_stratum)
 		quit(1, "%s-%d: MM has to use stratum pools", avalon10->drv->name, avalon10->device_id);
@@ -2052,38 +2045,31 @@ static void avalon10_sswork_update(struct cgpu_info *avalon10)
 	coinbase_len_posthash = pool->coinbase_len - coinbase_len_prehash;
 
 	if (coinbase_len_posthash + SHA256_BLOCK_SIZE > AVA10_P_COINBASE_SIZE) {
-		applog(LOG_ERR, "%s-%d: MM pool modified coinbase length(%d) is more than %d",
-			avalon10->drv->name, avalon10->device_id,
-			coinbase_len_posthash + SHA256_BLOCK_SIZE, AVA10_P_COINBASE_SIZE);
+		applog(LOG_ERR, "%s-%d: MM pool modified coinbase length(%d) is more than %d", avalon10->drv->name, avalon10->device_id,
+									coinbase_len_posthash + SHA256_BLOCK_SIZE, AVA10_P_COINBASE_SIZE);
 		return;
 	}
+
 	if (pool->merkles > AVA10_P_MERKLES_COUNT) {
 		applog(LOG_ERR, "%s-%d: MM merkles has to be less then %d", avalon10->drv->name, avalon10->device_id, AVA10_P_MERKLES_COUNT);
 		return;
 	}
+
 	if (pool->n2size < 3) {
 		applog(LOG_ERR, "%s-%d: MM nonce2 size has to be >= 3 (%d)", avalon10->drv->name, avalon10->device_id, pool->n2size);
 		return;
 	}
+
 	cg_wlock(&info->update_lock);
 
-	/* Step 2: Send out stratum pkgs */
 	cg_rlock(&pool->data_lock);
+	info->pool_no = pool->pool_no;
 	copy_pool_stratum(&info->pool2, &info->pool1);
 	copy_pool_stratum(&info->pool1, &info->pool0);
-	if (copy_pool_stratum(&info->pool0, pool)) {
-		cg_runlock(&pool->data_lock);
-		cg_wunlock(&info->update_lock);
+	copy_pool_stratum(&info->pool0, pool);
+	avalon10_stratum_pkgs(avalon10, pool);
+	cg_runlock(&pool->data_lock);
 
-		return;
-	} else {
-		info->pool_no = pool->pool_no;
-
-		avalon10_stratum_pkgs(avalon10, pool);
-		cg_runlock(&pool->data_lock);
-	}
-
-	/* Step 3: Send out finish pkg */
 	avalon10_stratum_finish(avalon10);
 	cg_wunlock(&info->update_lock);
 }
