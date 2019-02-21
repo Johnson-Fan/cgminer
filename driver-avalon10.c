@@ -181,10 +181,10 @@ uint32_t cpm_table_point[] =
 
 struct avalon10_dev_description avalon10_dev_table[] = {
 	{
-		"911",
-		2,
-		68,
-		26,
+		"A10",
+		AVA10_DEFAULT_MINER_CNT,
+		AVA10_DEFAULT_ASIC_MAX,
+		AVA10_DEFAULT_VOLTAGE_LEVEL,
 		{
 			AVA10_DEFAULT_FREQUENCY_0M,
 			AVA10_DEFAULT_FREQUENCY_462M,
