@@ -1625,7 +1625,7 @@ static int polling(struct cgpu_info *avalon10)
 	return 0;
 }
 
-static int copy_pool_stratum(struct pool *pool_stratum, struct pool *pool)
+static void copy_pool_stratum(struct pool *pool_stratum, struct pool *pool)
 {
 	int i;
 	int merkles = pool->merkles, job_id_len;
@@ -1633,7 +1633,7 @@ static int copy_pool_stratum(struct pool *pool_stratum, struct pool *pool)
 	unsigned short crc;
 
 	if (!pool->swork.job_id)
-		return 1;
+		return;
 
 	if (pool_stratum->swork.job_id) {
 		job_id_len = strlen(pool->swork.job_id);
@@ -1641,7 +1641,7 @@ static int copy_pool_stratum(struct pool *pool_stratum, struct pool *pool)
 		job_id_len = strlen(pool_stratum->swork.job_id);
 
 		if (crc16((unsigned char *)pool_stratum->swork.job_id, job_id_len) == crc)
-			return 1;
+			return;
 	}
 
 	cg_wlock(&pool_stratum->data_lock);
@@ -1674,8 +1674,6 @@ static int copy_pool_stratum(struct pool *pool_stratum, struct pool *pool)
 	memcpy(pool_stratum->ntime, pool->ntime, sizeof(pool_stratum->ntime));
 	memcpy(pool_stratum->header_bin, pool->header_bin, sizeof(pool_stratum->header_bin));
 	cg_wunlock(&pool_stratum->data_lock);
-
-	return 0;
 }
 
 static void avalon10_init_setting(struct cgpu_info *avalon10, int addr)
