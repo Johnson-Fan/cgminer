@@ -1662,6 +1662,25 @@ static void detect_modules(struct cgpu_info *avalon10)
 		/* Keep the usb buffer is empty */
 		usb_buffer_clear(avalon10);
 		usb_read(avalon10, (char *)rbuf, AVA10_AUC_P_SIZE, &rlen, C_AVA10_READ);
+
+		for (j = 0; j < info->miner_count[i]; j++) {
+			for (k = 0; k < AVA10_DEFAULT_PLL_CNT; k++) {
+				if (opt_avalon10_freq[k] != AVA10_DEFAULT_FREQUENCY)
+					info->set_frequency[i][j][k] = opt_avalon10_freq[k];
+			}
+		}
+
+		avalon10_init_setting(avalon10, i);
+
+		avalon10_set_voltage_level(avalon10, i, info->set_voltage_level[i]);
+
+		for (j = 0; j < info->miner_count[i]; j++)
+			avalon10_set_freq(avalon10, i, j, 0, info->set_frequency[i][j]);
+
+		if (opt_avalon10_smart_speed)
+			avalon10_set_ss_param(avalon10, i);
+
+		avalon10_set_finish(avalon10, i);
 	}
 }
 
@@ -2690,7 +2709,6 @@ static int64_t avalon10_scanhash(struct thr_info *thr)
 		return -1;
 	}
 
-	/* Step 1: Stop polling and detach the device if there is no stratum in 3 minutes, network is down */
 	cgtime(&current);
 	if (tdiff(&current, &(info->last_stratum)) > 180.0) {
 		for (i = 1; i < AVA10_DEFAULT_MODULARS; i++) {
@@ -2702,80 +2720,23 @@ static int64_t avalon10_scanhash(struct thr_info *thr)
 		return 0;
 	}
 
-	/* Step 2: Try to detect new modules */
 	if ((tdiff(&current, &(info->last_detect)) > AVA10_MODULE_DETECT_INTERVAL) ||
 		!info->mm_count) {
 		cgtime(&info->last_detect);
 		detect_modules(avalon10);
 	}
 
-	/* Step 3: ASIC configrations (voltage and frequency) */
-	for (i = 1; i < AVA10_DEFAULT_MODULARS; i++) {
-		if (!info->enable[i])
-			continue;
-
-		update_settings = false;
-
-		/* Check temperautre */
-		temp_max = get_temp_max(info, i);
-
-		/* Enter too hot */
-		if (temp_max >= info->temp_overheat[i])
-			info->cutoff[i] = 1;
-
-		/* Exit too hot */
-		if (info->cutoff[i] && (temp_max <= (info->temp_overheat[i] - 10)))
-			info->cutoff[i] = 0;
-
-		switch (info->freq_mode[i]) {
-			case AVA10_FREQ_INIT_MODE:
-				update_settings = true;
-				for (j = 0; j < info->miner_count[i]; j++) {
-					for (k = 0; k < AVA10_DEFAULT_PLL_CNT; k++) {
-						if (opt_avalon10_freq[k] != AVA10_DEFAULT_FREQUENCY)
-							info->set_frequency[i][j][k] = opt_avalon10_freq[k];
-					}
-				}
-				avalon10_init_setting(avalon10, i);
-
-				info->freq_mode[i] = AVA10_FREQ_PLLADJ_MODE;
-				break;
-			case AVA10_FREQ_PLLADJ_MODE:
-				if (opt_avalon10_smart_speed == AVA10_DEFAULT_SMARTSPEED_OFF)
-					break;
-
-				/* AVA10_DEFAULT_SMARTSPEED_MODE1: auto speed by A3210 chips */
-				break;
-			default:
-				applog(LOG_ERR, "%s-%d-%d: Invalid frequency mode %d",
-						avalon10->drv->name, avalon10->device_id, i, info->freq_mode[i]);
-				break;
-		}
-		if (update_settings) {
-			cg_wlock(&info->update_lock);
-			avalon10_set_voltage_level(avalon10, i, info->set_voltage_level[i]);
-			for (j = 0; j < info->miner_count[i]; j++)
-				avalon10_set_freq(avalon10, i, j, 0, info->set_frequency[i][j]);
-			if (opt_avalon10_smart_speed)
-				avalon10_set_ss_param(avalon10, i);
-			avalon10_set_finish(avalon10, i);
-			cg_wunlock(&info->update_lock);
-		}
-	}
-
-	/* Step 4: Polling  */
 	cg_rlock(&info->update_lock);
 	polling(avalon10);
 	cg_runlock(&info->update_lock);
 
-	/* Step 5: Calculate mm count */
 	for (i = 1; i < AVA10_DEFAULT_MODULARS; i++) {
 		if (info->enable[i])
 			count++;
 	}
 	info->mm_count = count;
 
-	/* Step 6: Calculate hashes. Use the diff1 value which is scaled by
+	/* Calculate hashes. Use the diff1 value which is scaled by
 	 * device diff and is usually lower than pool diff which will give a
 	 * more stable result, but remove diff rejected shares to more closely
 	 * approximate diff accepted values. */
