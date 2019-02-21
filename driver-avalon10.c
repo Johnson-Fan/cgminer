@@ -25,8 +25,6 @@ int opt_avalon10_fan_max = AVA10_DEFAULT_FAN_MAX;
 int opt_avalon10_voltage_level = AVA10_INVALID_VOLTAGE_LEVEL;
 int opt_avalon10_voltage_level_offset = AVA10_DEFAULT_VOLTAGE_LEVEL_OFFSET;
 
-static uint8_t opt_avalon10_cycle_hit_flag;
-
 int opt_avalon10_freq[AVA10_DEFAULT_PLL_CNT] =
 {
 	AVA10_DEFAULT_FREQUENCY,
@@ -43,11 +41,6 @@ int opt_avalon10_aucspeed = AVA10_AUC_SPEED;
 int opt_avalon10_aucxdelay = AVA10_AUC_XDELAY;
 
 int opt_avalon10_smart_speed = AVA10_DEFAULT_SMART_SPEED;
-/*
- * smart speed have 2 modes
- * 1. auto speed by A3210 chips
- * 2. option 1 + adjust by average frequency
- */
 
 uint32_t opt_avalon10_th_pass = AVA10_DEFAULT_TH_PASS;
 uint32_t opt_avalon10_th_fail = AVA10_DEFAULT_TH_FAIL;
@@ -1624,7 +1617,6 @@ static void detect_modules(struct cgpu_info *avalon10)
 		memset(info->get_pll[i], 0, sizeof(uint32_t) * info->miner_count[i] * AVA10_DEFAULT_PLL_CNT);
 
 		info->led_indicator[i] = 0;
-		info->cutoff[i] = 0;
 		info->fan_cpm[i] = 0;
 		info->temp_mm[i] = -273;
 		info->local_works[i] = 0;

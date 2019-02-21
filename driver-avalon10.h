@@ -265,7 +265,6 @@ struct avalon10_info {
 	uint32_t core_volt[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_MINER_CNT] \
 			  [AVA10_DEFAULT_ASIC_MAX][AVA10_DEFAULT_CORE_VOLT_CNT];
 
-	uint8_t cutoff[AVA10_DEFAULT_MODULARS];
 	int temp_target[AVA10_DEFAULT_MODULARS];
 	int temp_overheat[AVA10_DEFAULT_MODULARS];
 
