@@ -15,6 +15,16 @@
 #include "util.h"
 #include "i2c-context.h"
 
+#define UNPACK32(x, str)			\
+{						\
+	*((str) + 3) = (uint8_t) ((x)      );	\
+	*((str) + 2) = (uint8_t) ((x) >>  8);	\
+	*((str) + 1) = (uint8_t) ((x) >> 16);	\
+	*((str) + 0) = (uint8_t) ((x) >> 24);	\
+}
+
+#define get_fan_pwm(v)			(AVA10_PWM_MAX - (v) * AVA10_PWM_MAX / 100)
+
 #ifdef USE_AVALON10
 
 #define AVA10_DEFAULT_FAN_MIN		5 /* % */
@@ -173,6 +183,14 @@
 #define AVA10_DEFAULT_FACTORY_INFO_CNT	(AVA10_DEFAULT_FACTORY_INFO_0_CNT + AVA10_DEFAULT_FACTORY_INFO_1_CNT)
 
 #define AVA10_DEFAULT_POWER_INFO_CNT	6
+
+#define SERIESRESISTOR          10000
+#define THERMISTORNOMINAL       10000
+#define BCOEFFICIENT            3500
+#define TEMPERATURENOMINAL      25
+
+#define STATBUFLEN_WITHOUT_DBG	(6 * 1024)
+#define STATBUFLEN_WITH_DBG	(6 * 7 * 1024)
 
 struct avalon10_pkg {
 	uint8_t head[2];

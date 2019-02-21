@@ -17,8 +17,6 @@
 #include "sha2.h"
 #include "hexdump.c"
 
-#define get_fan_pwm(v)	(AVA10_PWM_MAX - (v) * AVA10_PWM_MAX / 100)
-
 int opt_avalon10_temp_target = AVA10_DEFAULT_TEMP_TARGET;
 
 int opt_avalon10_fan_min = AVA10_DEFAULT_FAN_MIN;
@@ -238,10 +236,6 @@ static uint32_t decode_pvt_volt(uint16_t volt)
 	return c * 1000;
 }
 
-#define SERIESRESISTOR          10000
-#define THERMISTORNOMINAL       10000
-#define BCOEFFICIENT            3500
-#define TEMPERATURENOMINAL      25
 float decode_auc_temp(int value)
 {
 	float ret, resistance;
@@ -259,14 +253,6 @@ float decode_auc_temp(int value)
 	ret -= 273.15;
 
 	return ret;
-}
-
-#define UNPACK32(x, str)			\
-{						\
-	*((str) + 3) = (uint8_t) ((x)      );	\
-	*((str) + 2) = (uint8_t) ((x) >>  8);	\
-	*((str) + 1) = (uint8_t) ((x) >> 16);	\
-	*((str) + 0) = (uint8_t) ((x) >> 24);	\
 }
 
 static inline void sha256_prehash(const unsigned char *message, unsigned int len, unsigned char *digest)
@@ -370,26 +356,6 @@ char *set_avalon10_voltage_level_offset(char *arg)
        opt_avalon10_voltage_level_offset = val;
 
        return NULL;
-}
-
-static int avalon10_init_pkg(struct avalon10_pkg *pkg, uint8_t type, uint8_t idx, uint8_t cnt)
-{
-	unsigned short crc;
-
-	pkg->head[0] = AVA10_H1;
-	pkg->head[1] = AVA10_H2;
-
-	pkg->type = type;
-	pkg->opt = 0;
-	pkg->idx = idx;
-	pkg->cnt = cnt;
-
-	crc = crc16(pkg->data, AVA10_P_DATA_LEN);
-
-	pkg->crc[0] = (crc & 0xff00) >> 8;
-	pkg->crc[1] = crc & 0xff;
-
-	return 0;
 }
 
 static int job_idcmp(uint8_t *job_id, char *pool_job_id)
@@ -968,6 +934,26 @@ static int avalon10_auc_getinfo(struct cgpu_info *avalon10)
 	return 0;
 }
 
+static int avalon10_init_pkg(struct avalon10_pkg *pkg, uint8_t type, uint8_t idx, uint8_t cnt)
+{
+	unsigned short crc;
+
+	pkg->head[0] = AVA10_H1;
+	pkg->head[1] = AVA10_H2;
+
+	pkg->type = type;
+	pkg->opt = 0;
+	pkg->idx = idx;
+	pkg->cnt = cnt;
+
+	crc = crc16(pkg->data, AVA10_P_DATA_LEN);
+
+	pkg->crc[0] = (crc & 0xff00) >> 8;
+	pkg->crc[1] = crc & 0xff;
+
+	return 0;
+}
+
 static int avalon10_iic_xfer_pkg(struct cgpu_info *avalon10, uint8_t slave_addr,
 				const struct avalon10_pkg *pkg, struct avalon10_ret *ret)
 {
@@ -1029,6 +1015,57 @@ static int avalon10_send_bc_pkgs(struct cgpu_info *avalon10, const struct avalon
 	} while (ret != AVA10_SEND_OK);
 
 	return 0;
+}
+
+static void copy_pool_stratum(struct pool *pool_stratum, struct pool *pool)
+{
+	int i;
+	int merkles = pool->merkles, job_id_len;
+	size_t coinbase_len = pool->coinbase_len;
+	unsigned short crc;
+
+	if (!pool->swork.job_id)
+		return;
+
+	if (pool_stratum->swork.job_id) {
+		job_id_len = strlen(pool->swork.job_id);
+		crc = crc16((unsigned char *)pool->swork.job_id, job_id_len);
+		job_id_len = strlen(pool_stratum->swork.job_id);
+
+		if (crc16((unsigned char *)pool_stratum->swork.job_id, job_id_len) == crc)
+			return;
+	}
+
+	cg_wlock(&pool_stratum->data_lock);
+	free(pool_stratum->swork.job_id);
+	free(pool_stratum->nonce1);
+	free(pool_stratum->coinbase);
+
+	pool_stratum->coinbase = cgcalloc(coinbase_len, 1);
+	memcpy(pool_stratum->coinbase, pool->coinbase, coinbase_len);
+
+	for (i = 0; i < pool_stratum->merkles; i++)
+		free(pool_stratum->swork.merkle_bin[i]);
+	if (merkles) {
+		pool_stratum->swork.merkle_bin = cgrealloc(pool_stratum->swork.merkle_bin,
+							   sizeof(char *) * merkles + 1);
+		for (i = 0; i < merkles; i++) {
+			pool_stratum->swork.merkle_bin[i] = cgmalloc(32);
+			memcpy(pool_stratum->swork.merkle_bin[i], pool->swork.merkle_bin[i], 32);
+		}
+	}
+
+	pool_stratum->sdiff = pool->sdiff;
+	pool_stratum->coinbase_len = pool->coinbase_len;
+	pool_stratum->nonce2_offset = pool->nonce2_offset;
+	pool_stratum->n2size = pool->n2size;
+	pool_stratum->merkles = pool->merkles;
+	pool_stratum->swork.job_id = strdup(pool->swork.job_id);
+	pool_stratum->nonce1 = strdup(pool->nonce1);
+
+	memcpy(pool_stratum->ntime, pool->ntime, sizeof(pool_stratum->ntime));
+	memcpy(pool_stratum->header_bin, pool->header_bin, sizeof(pool_stratum->header_bin));
+	cg_wunlock(&pool_stratum->data_lock);
 }
 
 static void avalon10_stratum_pkgs(struct cgpu_info *avalon10, struct pool *pool)
@@ -1190,375 +1227,13 @@ static void avalon10_stratum_pkgs(struct cgpu_info *avalon10, struct pool *pool)
 		avalon10_auc_getinfo(avalon10);
 }
 
-static void detect_modules(struct cgpu_info *avalon10);
-
-static struct cgpu_info *avalon10_auc_detect(struct libusb_device *dev, struct usb_find_devices *found)
+static void avalon10_stratum_finish(struct cgpu_info *avalon10)
 {
-	int i, modules = 0;
-	struct avalon10_info *info;
-	struct cgpu_info *avalon10 = usb_alloc_cgpu(&avalon10_drv, 1);
-	char auc_ver[AVA10_AUC_VER_LEN];
-
-	if (!usb_init(avalon10, dev, found)) {
-		applog(LOG_ERR, "avalon10 failed usb_init");
-		avalon10 = usb_free_cgpu(avalon10);
-		return NULL;
-	}
-
-	/* avalon10 prefers not to use zero length packets */
-	avalon10->nozlp = true;
-
-	/* We try twice on AUC init */
-	if (avalon10_auc_init(avalon10, auc_ver) && avalon10_auc_init(avalon10, auc_ver))
-		return NULL;
-
-	applog(LOG_INFO, "%s-%d: Found at %s", avalon10->drv->name, avalon10->device_id,
-	       avalon10->device_path);
-
-	avalon10->device_data = cgcalloc(sizeof(struct avalon10_info), 1);
-	memset(avalon10->device_data, 0, sizeof(struct avalon10_info));
-	info = avalon10->device_data;
-	memcpy(info->auc_version, auc_ver, AVA10_AUC_VER_LEN);
-	info->auc_version[AVA10_AUC_VER_LEN] = '\0';
-	info->auc_speed = opt_avalon10_aucspeed;
-	info->auc_xdelay = opt_avalon10_aucxdelay;
-
-	for (i = 0; i < AVA10_DEFAULT_MODULARS; i++)
-		info->enable[i] = 0;
-
-	info->connecter = AVA10_CONNECTER_AUC;
-
-	detect_modules(avalon10);
-	for (i = 0; i < AVA10_DEFAULT_MODULARS; i++)
-		modules += info->enable[i];
-
-	if (!modules) {
-		applog(LOG_INFO, "avalon10 found but no modules initialised");
-		free(info);
-		avalon10 = usb_free_cgpu(avalon10);
-		return NULL;
-	}
-
-	/* We have an avalon10 AUC connected */
-	avalon10->threads = 1;
-	add_cgpu(avalon10);
-
-	update_usb_stats(avalon10);
-
-	return avalon10;
-}
-
-static inline void avalon10_detect(bool __maybe_unused hotplug)
-{
-	usb_detect(&avalon10_drv, avalon10_auc_detect);
-}
-
-static bool avalon10_prepare(struct thr_info *thr)
-{
-	struct cgpu_info *avalon10 = thr->cgpu;
-	struct avalon10_info *info = avalon10->device_data;
-
-	info->last_diff1 = 0;
-	info->pending_diff1 = 0;
-	info->last_rej = 0;
-	info->mm_count = 0;
-	info->xfer_err_cnt = 0;
-	info->pool_no = 0;
-
-	memset(&(info->firsthash), 0, sizeof(info->firsthash));
-	cgtime(&(info->last_fan_adj));
-	cgtime(&info->last_stratum);
-	cgtime(&info->last_detect);
-
-	cglock_init(&info->update_lock);
-	cglock_init(&info->pool0.data_lock);
-	cglock_init(&info->pool1.data_lock);
-	cglock_init(&info->pool2.data_lock);
-
-	return true;
-}
-
-static int check_module_exist(struct cgpu_info *avalon10, uint8_t mm_dna[AVA10_MM_DNA_LEN])
-{
-	struct avalon10_info *info = avalon10->device_data;
-	int i;
-
-	for (i = 0; i < AVA10_DEFAULT_MODULARS; i++) {
-		/* last byte is \0 */
-		if (info->enable[i] && !memcmp(info->mm_dna[i], mm_dna, AVA10_MM_DNA_LEN))
-			return 1;
-	}
-
-	return 0;
-}
-
-static void detect_modules(struct cgpu_info *avalon10)
-{
-	struct avalon10_info *info = avalon10->device_data;
 	struct avalon10_pkg send_pkg;
-	struct avalon10_ret ret_pkg;
-	uint32_t tmp;
-	int i, j, k, err, rlen;
-	uint8_t dev_index;
-	uint8_t rbuf[AVA10_AUC_P_SIZE];
 
-	/* Detect new modules here */
-	for (i = 1; i < AVA10_DEFAULT_MODULARS + 1; i++) {
-		if (info->enable[i])
-			continue;
-
-		/* Send out detect pkg */
-		applog(LOG_DEBUG, "%s-%d: AVA10_P_DETECT ID[%d]",
-		       avalon10->drv->name, avalon10->device_id, i);
-		memset(send_pkg.data, 0, AVA10_P_DATA_LEN);
-		tmp = be32toh(i); /* ID */
-		memcpy(send_pkg.data + 28, &tmp, 4);
-		avalon10_init_pkg(&send_pkg, AVA10_P_DETECT, 1, 1);
-		err = avalon10_iic_xfer_pkg(avalon10, AVA10_MODULE_BROADCAST, &send_pkg, &ret_pkg);
-		if (err == AVA10_SEND_OK) {
-			if (decode_pkg(avalon10, &ret_pkg, AVA10_MODULE_BROADCAST)) {
-				applog(LOG_DEBUG, "%s-%d: Should be AVA10_P_ACKDETECT(%d), but %d",
-				       avalon10->drv->name, avalon10->device_id, AVA10_P_ACKDETECT, ret_pkg.type);
-				continue;
-			}
-		}
-
-		if (err != AVA10_SEND_OK) {
-			applog(LOG_DEBUG, "%s-%d: AVA10_P_DETECT: Failed AUC xfer data with err %d",
-					avalon10->drv->name, avalon10->device_id, err);
-			break;
-		}
-
-		applog(LOG_DEBUG, "%s-%d: Module detect ID[%d]: %d",
-		       avalon10->drv->name, avalon10->device_id, i, ret_pkg.type);
-		if (ret_pkg.type != AVA10_P_ACKDETECT)
-			break;
-
-		if (check_module_exist(avalon10, ret_pkg.data))
-			continue;
-
-		/* Check count of modulars */
-		if (i == AVA10_DEFAULT_MODULARS) {
-			applog(LOG_NOTICE, "You have connected more than %d machines. This is discouraged.", (AVA10_DEFAULT_MODULARS - 1));
-			info->conn_overloaded = true;
-			break;
-		} else
-			info->conn_overloaded = false;
-
-		memcpy(info->mm_version[i], ret_pkg.data + AVA10_MM_DNA_LEN, AVA10_MM_VER_LEN);
-		info->mm_version[i][AVA10_MM_VER_LEN] = '\0';
-		for (dev_index = 0; dev_index < (sizeof(avalon10_dev_table) / sizeof(avalon10_dev_table[0])); dev_index++) {
-			if (!strncmp((char *)&(info->mm_version[i]), (char *)(avalon10_dev_table[dev_index].dev_id_str), 3)) {
-				info->miner_count[i] = avalon10_dev_table[dev_index].miner_count;
-				info->asic_count[i] = avalon10_dev_table[dev_index].asic_count;
-				break;
-			}
-		}
-		if (dev_index == (sizeof(avalon10_dev_table) / sizeof(avalon10_dev_table[0]))) {
-			applog(LOG_NOTICE, "%s-%d: The modular version %s cann't be support",
-				       avalon10->drv->name, avalon10->device_id, info->mm_version[i]);
-			break;
-		}
-
-		info->enable[i] = 1;
-		cgtime(&info->elapsed[i]);
-		memcpy(info->mm_dna[i], ret_pkg.data, AVA10_MM_DNA_LEN);
-		memcpy(&tmp, ret_pkg.data + AVA10_MM_DNA_LEN + AVA10_MM_VER_LEN, 4);
-		tmp = be32toh(tmp);
-		info->total_asics[i] = tmp;
-		info->temp_overheat[i] = AVA10_DEFAULT_TEMP_OVERHEAT;
-		info->temp_target[i] = opt_avalon10_temp_target;
-		info->fan_pct[i] = opt_avalon10_fan_min;
-		for (j = 0; j < info->miner_count[i]; j++) {
-			if (opt_avalon10_voltage_level == AVA10_INVALID_VOLTAGE_LEVEL)
-				info->set_voltage_level[i][j] = avalon10_dev_table[dev_index].set_voltage_level;
-			else
-				info->set_voltage_level[i][j] = opt_avalon10_voltage_level;
-
-			for (k = 0; k < info->asic_count[i]; k++)
-				info->temp[i][j][k] = -273;
-
-			for (k = 0; k < AVA10_DEFAULT_PLL_CNT; k++)
-				info->set_frequency[i][j][k] = avalon10_dev_table[dev_index].set_freq[k];
-		}
-		info->get_voltage[i][0] = 0;
-
-		info->freq_mode[i] = AVA10_FREQ_INIT_MODE;
-		memset(info->get_pll[i], 0, sizeof(uint32_t) * info->miner_count[i] * AVA10_DEFAULT_PLL_CNT);
-
-		info->led_indicator[i] = 0;
-		info->cutoff[i] = 0;
-		info->fan_cpm[i] = 0;
-		info->temp_mm[i] = -273;
-		info->local_works[i] = 0;
-		info->hw_works[i] = 0;
-
-		/*PID controller*/
-		info->pid_u[i] = opt_avalon10_fan_min;
-		info->pid_p[i] = opt_avalon10_pid_p;
-		info->pid_i[i] = opt_avalon10_pid_i;
-		info->pid_d[i] = opt_avalon10_pid_d;
-		info->pid_e[i][0] = 0;
-		info->pid_e[i][1] = 0;
-		info->pid_e[i][2] = 0;
-		info->pid_0[i] = 0;
-
-		for (j = 0; j < info->miner_count[i]; j++) {
-			memset(info->chip_matching_work[i][j], 0, sizeof(uint64_t) * info->asic_count[i]);
-			info->local_works_i[i][j] = 0;
-			info->hw_works_i[i][j] = 0;
-			info->error_code[i][j] = 0;
-			info->error_crc[i][j] = 0;
-		}
-		info->error_code[i][j] = 0;
-		info->error_polling_cnt[i] = 0;
-		info->diff1[i] = 0;
-
-		applog(LOG_NOTICE, "%s-%d: New module detected! ID[%d-%x]",
-		       avalon10->drv->name, avalon10->device_id, i, info->mm_dna[i][AVA10_MM_DNA_LEN - 1]);
-
-		/* Tell MM, it has been detected */
-		memset(send_pkg.data, 0, AVA10_P_DATA_LEN);
-		memcpy(send_pkg.data, info->mm_dna[i],  AVA10_MM_DNA_LEN);
-		avalon10_init_pkg(&send_pkg, AVA10_P_SYNC, 1, 1);
-		avalon10_iic_xfer_pkg(avalon10, i, &send_pkg, &ret_pkg);
-		/* Keep the usb buffer is empty */
-		usb_buffer_clear(avalon10);
-		usb_read(avalon10, (char *)rbuf, AVA10_AUC_P_SIZE, &rlen, C_AVA10_READ);
-	}
-}
-
-static void detach_module(struct cgpu_info *avalon10, int addr)
-{
-	struct avalon10_info *info = avalon10->device_data;
-
-	info->enable[addr] = 0;
-	applog(LOG_NOTICE, "%s-%d: Module detached! ID[%d]",
-		avalon10->drv->name, avalon10->device_id, addr);
-}
-
-static int polling(struct cgpu_info *avalon10)
-{
-	struct avalon10_info *info = avalon10->device_data;
-	struct avalon10_pkg send_pkg;
-	struct avalon10_ret ar;
-	int i, tmp, ret, decode_err = 0;
-	struct timeval current_fan;
-	int do_adjust_fan = 0;
-	uint32_t fan_pwm;
-	double device_tdiff;
-
-	cgtime(&current_fan);
-	device_tdiff = tdiff(&current_fan, &(info->last_fan_adj));
-	if (device_tdiff > 2.0 || device_tdiff < 0) {
-		cgtime(&info->last_fan_adj);
-		do_adjust_fan = 1;
-	}
-
-	for (i = 1; i < AVA10_DEFAULT_MODULARS; i++) {
-		if (!info->enable[i])
-			continue;
-
-		cgsleep_ms(opt_avalon10_polling_delay);
-
-		memset(send_pkg.data, 0, AVA10_P_DATA_LEN);
-		/* Red LED */
-		tmp = be32toh(info->led_indicator[i]);
-		memcpy(send_pkg.data, &tmp, 4);
-
-		/* Adjust fan every 2 seconds*/
-		if (do_adjust_fan) {
-			fan_pwm = adjust_fan(info, i);
-			fan_pwm |= 0x80000000;
-			tmp = be32toh(fan_pwm);
-			memcpy(send_pkg.data + 4, &tmp, 4);
-		}
-
-		if (info->reboot[i]) {
-			info->reboot[i] = false;
-			send_pkg.data[8] = 0x1;
-		}
-
-		avalon10_init_pkg(&send_pkg, AVA10_P_POLLING, 1, 1);
-		ret = avalon10_iic_xfer_pkg(avalon10, i, &send_pkg, &ar);
-		if (ret == AVA10_SEND_OK)
-			decode_err = decode_pkg(avalon10, &ar, i);
-
-		if (ret != AVA10_SEND_OK || decode_err) {
-			info->error_polling_cnt[i]++;
-			memset(send_pkg.data, 0, AVA10_P_DATA_LEN);
-			avalon10_init_pkg(&send_pkg, AVA10_P_RSTMMTX, 1, 1);
-			avalon10_iic_xfer_pkg(avalon10, i, &send_pkg, NULL);
-			if (info->error_polling_cnt[i] >= 10)
-				detach_module(avalon10, i);
-		}
-
-		if (ret == AVA10_SEND_OK && !decode_err) {
-			info->error_polling_cnt[i] = 0;
-
-			if ((ar.opt == AVA10_P_STATUS) &&
-				(info->mm_dna[i][AVA10_MM_DNA_LEN - 1] != ar.opt)) {
-				applog(LOG_ERR, "%s-%d-%d: Dup address found %d-%d",
-						avalon10->drv->name, avalon10->device_id, i,
-						info->mm_dna[i][AVA10_MM_DNA_LEN - 1], ar.opt);
-				hexdump((uint8_t *)&ar, sizeof(ar));
-				detach_module(avalon10, i);
-			}
-		}
-	}
-
-	return 0;
-}
-
-static void copy_pool_stratum(struct pool *pool_stratum, struct pool *pool)
-{
-	int i;
-	int merkles = pool->merkles, job_id_len;
-	size_t coinbase_len = pool->coinbase_len;
-	unsigned short crc;
-
-	if (!pool->swork.job_id)
-		return;
-
-	if (pool_stratum->swork.job_id) {
-		job_id_len = strlen(pool->swork.job_id);
-		crc = crc16((unsigned char *)pool->swork.job_id, job_id_len);
-		job_id_len = strlen(pool_stratum->swork.job_id);
-
-		if (crc16((unsigned char *)pool_stratum->swork.job_id, job_id_len) == crc)
-			return;
-	}
-
-	cg_wlock(&pool_stratum->data_lock);
-	free(pool_stratum->swork.job_id);
-	free(pool_stratum->nonce1);
-	free(pool_stratum->coinbase);
-
-	pool_stratum->coinbase = cgcalloc(coinbase_len, 1);
-	memcpy(pool_stratum->coinbase, pool->coinbase, coinbase_len);
-
-	for (i = 0; i < pool_stratum->merkles; i++)
-		free(pool_stratum->swork.merkle_bin[i]);
-	if (merkles) {
-		pool_stratum->swork.merkle_bin = cgrealloc(pool_stratum->swork.merkle_bin,
-							   sizeof(char *) * merkles + 1);
-		for (i = 0; i < merkles; i++) {
-			pool_stratum->swork.merkle_bin[i] = cgmalloc(32);
-			memcpy(pool_stratum->swork.merkle_bin[i], pool->swork.merkle_bin[i], 32);
-		}
-	}
-
-	pool_stratum->sdiff = pool->sdiff;
-	pool_stratum->coinbase_len = pool->coinbase_len;
-	pool_stratum->nonce2_offset = pool->nonce2_offset;
-	pool_stratum->n2size = pool->n2size;
-	pool_stratum->merkles = pool->merkles;
-	pool_stratum->swork.job_id = strdup(pool->swork.job_id);
-	pool_stratum->nonce1 = strdup(pool->nonce1);
-
-	memcpy(pool_stratum->ntime, pool->ntime, sizeof(pool_stratum->ntime));
-	memcpy(pool_stratum->header_bin, pool->header_bin, sizeof(pool_stratum->header_bin));
-	cg_wunlock(&pool_stratum->data_lock);
+	memset(send_pkg.data, 0, AVA10_P_DATA_LEN);
+	avalon10_init_pkg(&send_pkg, AVA10_P_JOB_FIN, 1, 1);
+	avalon10_send_bc_pkgs(avalon10, &send_pkg);
 }
 
 static void avalon10_init_setting(struct cgpu_info *avalon10, int addr)
@@ -1831,15 +1506,6 @@ static void avalon10_set_adjust_voltage_option(struct cgpu_info *avalon10, int a
 	return;
 }
 
-static void avalon10_stratum_finish(struct cgpu_info *avalon10)
-{
-	struct avalon10_pkg send_pkg;
-
-	memset(send_pkg.data, 0, AVA10_P_DATA_LEN);
-	avalon10_init_pkg(&send_pkg, AVA10_P_JOB_FIN, 1, 1);
-	avalon10_send_bc_pkgs(avalon10, &send_pkg);
-}
-
 static void avalon10_set_finish(struct cgpu_info *avalon10, int addr)
 {
 	struct avalon10_pkg send_pkg;
@@ -1849,237 +1515,236 @@ static void avalon10_set_finish(struct cgpu_info *avalon10, int addr)
 	avalon10_iic_xfer_pkg(avalon10, addr, &send_pkg, NULL);
 }
 
-static void avalon10_sswork_flush(struct cgpu_info *avalon10)
+static int check_module_exist(struct cgpu_info *avalon10, uint8_t mm_dna[AVA10_MM_DNA_LEN])
 {
 	struct avalon10_info *info = avalon10->device_data;
-	struct thr_info *thr = avalon10->thr[0];
-	struct pool *pool;
-	int coinbase_len_posthash, coinbase_len_prehash;
+	int i;
 
-	applog(LOG_NOTICE, "%s-%d: Flush stratum: restart: %d, update: %d",
-	avalon10->drv->name, avalon10->device_id,
-	thr->work_restart, thr->work_update);
-
-	if (thr->work_restart)
-		info->work_restart = true;
-
-	if (!thr->work_update)
-		return;
-
-	thr->work_update = false;
-
-	cgtime(&info->last_stratum);
-
-	pool = current_pool();
-	if (!pool->has_stratum)
-		quit(1, "%s-%d: MM has to use stratum pools", avalon10->drv->name, avalon10->device_id);
-
-	coinbase_len_prehash = pool->nonce2_offset - (pool->nonce2_offset % SHA256_BLOCK_SIZE);
-	coinbase_len_posthash = pool->coinbase_len - coinbase_len_prehash;
-
-	if (coinbase_len_posthash + SHA256_BLOCK_SIZE > AVA10_P_COINBASE_SIZE) {
-		applog(LOG_ERR, "%s-%d: MM pool modified coinbase length(%d) is more than %d", avalon10->drv->name, avalon10->device_id,
-									coinbase_len_posthash + SHA256_BLOCK_SIZE, AVA10_P_COINBASE_SIZE);
-		return;
+	for (i = 0; i < AVA10_DEFAULT_MODULARS; i++) {
+		/* last byte is \0 */
+		if (info->enable[i] && !memcmp(info->mm_dna[i], mm_dna, AVA10_MM_DNA_LEN))
+			return 1;
 	}
 
-	if (pool->merkles > AVA10_P_MERKLES_COUNT) {
-		applog(LOG_ERR, "%s-%d: MM merkles has to be less then %d", avalon10->drv->name, avalon10->device_id, AVA10_P_MERKLES_COUNT);
-		return;
-	}
-
-	if (pool->n2size < 3) {
-		applog(LOG_ERR, "%s-%d: MM nonce2 size has to be >= 3 (%d)", avalon10->drv->name, avalon10->device_id, pool->n2size);
-		return;
-	}
-
-	cg_wlock(&info->update_lock);
-
-	cg_rlock(&pool->data_lock);
-	info->pool_no = pool->pool_no;
-	copy_pool_stratum(&info->pool2, &info->pool1);
-	copy_pool_stratum(&info->pool1, &info->pool0);
-	copy_pool_stratum(&info->pool0, pool);
-	avalon10_stratum_pkgs(avalon10, pool);
-	cg_runlock(&pool->data_lock);
-
-	avalon10_stratum_finish(avalon10);
-
-	cg_wunlock(&info->update_lock);
+	return 0;
 }
 
-static void avalon10_sswork_update(struct cgpu_info *avalon10)
+static void detect_modules(struct cgpu_info *avalon10)
 {
 	struct avalon10_info *info = avalon10->device_data;
-	struct thr_info *thr = avalon10->thr[0];
-	struct pool *pool;
-	int coinbase_len_posthash, coinbase_len_prehash;
+	struct avalon10_pkg send_pkg;
+	struct avalon10_ret ret_pkg;
+	uint32_t tmp;
+	int i, j, k, err, rlen;
+	uint8_t dev_index;
+	uint8_t rbuf[AVA10_AUC_P_SIZE];
 
-	cgtime(&info->last_stratum);
+	/* Detect new modules here */
+	for (i = 1; i < AVA10_DEFAULT_MODULARS + 1; i++) {
+		if (info->enable[i])
+			continue;
 
-	applog(LOG_NOTICE, "%s-%d: New stratum: restart: %d, update: %d", avalon10->drv->name, avalon10->device_id,
-										thr->work_restart, thr->work_update);
-
-	pool = current_pool();
-	if (!pool->has_stratum)
-		quit(1, "%s-%d: MM has to use stratum pools", avalon10->drv->name, avalon10->device_id);
-
-	coinbase_len_prehash = pool->nonce2_offset - (pool->nonce2_offset % SHA256_BLOCK_SIZE);
-	coinbase_len_posthash = pool->coinbase_len - coinbase_len_prehash;
-
-	if (coinbase_len_posthash + SHA256_BLOCK_SIZE > AVA10_P_COINBASE_SIZE) {
-		applog(LOG_ERR, "%s-%d: MM pool modified coinbase length(%d) is more than %d", avalon10->drv->name, avalon10->device_id,
-									coinbase_len_posthash + SHA256_BLOCK_SIZE, AVA10_P_COINBASE_SIZE);
-		return;
-	}
-
-	if (pool->merkles > AVA10_P_MERKLES_COUNT) {
-		applog(LOG_ERR, "%s-%d: MM merkles has to be less then %d", avalon10->drv->name, avalon10->device_id, AVA10_P_MERKLES_COUNT);
-		return;
-	}
-
-	if (pool->n2size < 3) {
-		applog(LOG_ERR, "%s-%d: MM nonce2 size has to be >= 3 (%d)", avalon10->drv->name, avalon10->device_id, pool->n2size);
-		return;
-	}
-
-	cg_wlock(&info->update_lock);
-
-	cg_rlock(&pool->data_lock);
-	info->pool_no = pool->pool_no;
-	copy_pool_stratum(&info->pool2, &info->pool1);
-	copy_pool_stratum(&info->pool1, &info->pool0);
-	copy_pool_stratum(&info->pool0, pool);
-	avalon10_stratum_pkgs(avalon10, pool);
-	cg_runlock(&pool->data_lock);
-
-	avalon10_stratum_finish(avalon10);
-	cg_wunlock(&info->update_lock);
-}
-
-static int64_t avalon10_scanhash(struct thr_info *thr)
-{
-	struct cgpu_info *avalon10 = thr->cgpu;
-	struct avalon10_info *info = avalon10->device_data;
-	struct timeval current;
-	int i, j, k, count = 0;
-	int temp_max;
-	int64_t ret;
-	bool update_settings = false;
-
-	if ((info->connecter == AVA10_CONNECTER_AUC) &&
-		(unlikely(avalon10->usbinfo.nodev))) {
-		applog(LOG_ERR, "%s-%d: Device disappeared, shutting down thread",
-				avalon10->drv->name, avalon10->device_id);
-		return -1;
-	}
-
-	/* Step 1: Stop polling and detach the device if there is no stratum in 3 minutes, network is down */
-	cgtime(&current);
-	if (tdiff(&current, &(info->last_stratum)) > 180.0) {
-		for (i = 1; i < AVA10_DEFAULT_MODULARS; i++) {
-			if (!info->enable[i])
+		/* Send out detect pkg */
+		applog(LOG_DEBUG, "%s-%d: AVA10_P_DETECT ID[%d]",
+		       avalon10->drv->name, avalon10->device_id, i);
+		memset(send_pkg.data, 0, AVA10_P_DATA_LEN);
+		tmp = be32toh(i); /* ID */
+		memcpy(send_pkg.data + 28, &tmp, 4);
+		avalon10_init_pkg(&send_pkg, AVA10_P_DETECT, 1, 1);
+		err = avalon10_iic_xfer_pkg(avalon10, AVA10_MODULE_BROADCAST, &send_pkg, &ret_pkg);
+		if (err == AVA10_SEND_OK) {
+			if (decode_pkg(avalon10, &ret_pkg, AVA10_MODULE_BROADCAST)) {
+				applog(LOG_DEBUG, "%s-%d: Should be AVA10_P_ACKDETECT(%d), but %d",
+				       avalon10->drv->name, avalon10->device_id, AVA10_P_ACKDETECT, ret_pkg.type);
 				continue;
-			detach_module(avalon10, i);
+			}
 		}
-		info->mm_count = 0;
-		return 0;
+
+		if (err != AVA10_SEND_OK) {
+			applog(LOG_DEBUG, "%s-%d: AVA10_P_DETECT: Failed AUC xfer data with err %d",
+					avalon10->drv->name, avalon10->device_id, err);
+			break;
+		}
+
+		applog(LOG_DEBUG, "%s-%d: Module detect ID[%d]: %d",
+		       avalon10->drv->name, avalon10->device_id, i, ret_pkg.type);
+		if (ret_pkg.type != AVA10_P_ACKDETECT)
+			break;
+
+		if (check_module_exist(avalon10, ret_pkg.data))
+			continue;
+
+		/* Check count of modulars */
+		if (i == AVA10_DEFAULT_MODULARS) {
+			applog(LOG_NOTICE, "You have connected more than %d machines. This is discouraged.", (AVA10_DEFAULT_MODULARS - 1));
+			info->conn_overloaded = true;
+			break;
+		} else
+			info->conn_overloaded = false;
+
+		memcpy(info->mm_version[i], ret_pkg.data + AVA10_MM_DNA_LEN, AVA10_MM_VER_LEN);
+		info->mm_version[i][AVA10_MM_VER_LEN] = '\0';
+		for (dev_index = 0; dev_index < (sizeof(avalon10_dev_table) / sizeof(avalon10_dev_table[0])); dev_index++) {
+			if (!strncmp((char *)&(info->mm_version[i]), (char *)(avalon10_dev_table[dev_index].dev_id_str), 3)) {
+				info->miner_count[i] = avalon10_dev_table[dev_index].miner_count;
+				info->asic_count[i] = avalon10_dev_table[dev_index].asic_count;
+				break;
+			}
+		}
+		if (dev_index == (sizeof(avalon10_dev_table) / sizeof(avalon10_dev_table[0]))) {
+			applog(LOG_NOTICE, "%s-%d: The modular version %s cann't be support",
+				       avalon10->drv->name, avalon10->device_id, info->mm_version[i]);
+			break;
+		}
+
+		info->enable[i] = 1;
+		cgtime(&info->elapsed[i]);
+		memcpy(info->mm_dna[i], ret_pkg.data, AVA10_MM_DNA_LEN);
+		memcpy(&tmp, ret_pkg.data + AVA10_MM_DNA_LEN + AVA10_MM_VER_LEN, 4);
+		tmp = be32toh(tmp);
+		info->total_asics[i] = tmp;
+		info->temp_overheat[i] = AVA10_DEFAULT_TEMP_OVERHEAT;
+		info->temp_target[i] = opt_avalon10_temp_target;
+		info->fan_pct[i] = opt_avalon10_fan_min;
+		for (j = 0; j < info->miner_count[i]; j++) {
+			if (opt_avalon10_voltage_level == AVA10_INVALID_VOLTAGE_LEVEL)
+				info->set_voltage_level[i][j] = avalon10_dev_table[dev_index].set_voltage_level;
+			else
+				info->set_voltage_level[i][j] = opt_avalon10_voltage_level;
+
+			for (k = 0; k < info->asic_count[i]; k++)
+				info->temp[i][j][k] = -273;
+
+			for (k = 0; k < AVA10_DEFAULT_PLL_CNT; k++)
+				info->set_frequency[i][j][k] = avalon10_dev_table[dev_index].set_freq[k];
+		}
+		info->get_voltage[i][0] = 0;
+
+		info->freq_mode[i] = AVA10_FREQ_INIT_MODE;
+		memset(info->get_pll[i], 0, sizeof(uint32_t) * info->miner_count[i] * AVA10_DEFAULT_PLL_CNT);
+
+		info->led_indicator[i] = 0;
+		info->cutoff[i] = 0;
+		info->fan_cpm[i] = 0;
+		info->temp_mm[i] = -273;
+		info->local_works[i] = 0;
+		info->hw_works[i] = 0;
+
+		/*PID controller*/
+		info->pid_u[i] = opt_avalon10_fan_min;
+		info->pid_p[i] = opt_avalon10_pid_p;
+		info->pid_i[i] = opt_avalon10_pid_i;
+		info->pid_d[i] = opt_avalon10_pid_d;
+		info->pid_e[i][0] = 0;
+		info->pid_e[i][1] = 0;
+		info->pid_e[i][2] = 0;
+		info->pid_0[i] = 0;
+
+		for (j = 0; j < info->miner_count[i]; j++) {
+			memset(info->chip_matching_work[i][j], 0, sizeof(uint64_t) * info->asic_count[i]);
+			info->local_works_i[i][j] = 0;
+			info->hw_works_i[i][j] = 0;
+			info->error_code[i][j] = 0;
+			info->error_crc[i][j] = 0;
+		}
+		info->error_code[i][j] = 0;
+		info->error_polling_cnt[i] = 0;
+		info->diff1[i] = 0;
+
+		applog(LOG_NOTICE, "%s-%d: New module detected! ID[%d-%x]",
+		       avalon10->drv->name, avalon10->device_id, i, info->mm_dna[i][AVA10_MM_DNA_LEN - 1]);
+
+		/* Tell MM, it has been detected */
+		memset(send_pkg.data, 0, AVA10_P_DATA_LEN);
+		memcpy(send_pkg.data, info->mm_dna[i],  AVA10_MM_DNA_LEN);
+		avalon10_init_pkg(&send_pkg, AVA10_P_SYNC, 1, 1);
+		avalon10_iic_xfer_pkg(avalon10, i, &send_pkg, &ret_pkg);
+		/* Keep the usb buffer is empty */
+		usb_buffer_clear(avalon10);
+		usb_read(avalon10, (char *)rbuf, AVA10_AUC_P_SIZE, &rlen, C_AVA10_READ);
+	}
+}
+
+static void detach_module(struct cgpu_info *avalon10, int addr)
+{
+	struct avalon10_info *info = avalon10->device_data;
+
+	info->enable[addr] = 0;
+	applog(LOG_NOTICE, "%s-%d: Module detached! ID[%d]",
+		avalon10->drv->name, avalon10->device_id, addr);
+}
+
+static int polling(struct cgpu_info *avalon10)
+{
+	struct avalon10_info *info = avalon10->device_data;
+	struct avalon10_pkg send_pkg;
+	struct avalon10_ret ar;
+	int i, tmp, ret, decode_err = 0;
+	struct timeval current_fan;
+	int do_adjust_fan = 0;
+	uint32_t fan_pwm;
+	double device_tdiff;
+
+	cgtime(&current_fan);
+	device_tdiff = tdiff(&current_fan, &(info->last_fan_adj));
+	if (device_tdiff > 2.0 || device_tdiff < 0) {
+		cgtime(&info->last_fan_adj);
+		do_adjust_fan = 1;
 	}
 
-	/* Step 2: Try to detect new modules */
-	if ((tdiff(&current, &(info->last_detect)) > AVA10_MODULE_DETECT_INTERVAL) ||
-		!info->mm_count) {
-		cgtime(&info->last_detect);
-		detect_modules(avalon10);
-	}
-
-	/* Step 3: ASIC configrations (voltage and frequency) */
 	for (i = 1; i < AVA10_DEFAULT_MODULARS; i++) {
 		if (!info->enable[i])
 			continue;
 
-		update_settings = false;
+		cgsleep_ms(opt_avalon10_polling_delay);
 
-		/* Check temperautre */
-		temp_max = get_temp_max(info, i);
+		memset(send_pkg.data, 0, AVA10_P_DATA_LEN);
+		/* Red LED */
+		tmp = be32toh(info->led_indicator[i]);
+		memcpy(send_pkg.data, &tmp, 4);
 
-		/* Enter too hot */
-		if (temp_max >= info->temp_overheat[i])
-			info->cutoff[i] = 1;
-
-		/* Exit too hot */
-		if (info->cutoff[i] && (temp_max <= (info->temp_overheat[i] - 10)))
-			info->cutoff[i] = 0;
-
-		switch (info->freq_mode[i]) {
-			case AVA10_FREQ_INIT_MODE:
-				update_settings = true;
-				for (j = 0; j < info->miner_count[i]; j++) {
-					for (k = 0; k < AVA10_DEFAULT_PLL_CNT; k++) {
-						if (opt_avalon10_freq[k] != AVA10_DEFAULT_FREQUENCY)
-							info->set_frequency[i][j][k] = opt_avalon10_freq[k];
-					}
-				}
-				avalon10_init_setting(avalon10, i);
-
-				info->freq_mode[i] = AVA10_FREQ_PLLADJ_MODE;
-				break;
-			case AVA10_FREQ_PLLADJ_MODE:
-				if (opt_avalon10_smart_speed == AVA10_DEFAULT_SMARTSPEED_OFF)
-					break;
-
-				/* AVA10_DEFAULT_SMARTSPEED_MODE1: auto speed by A3210 chips */
-				break;
-			default:
-				applog(LOG_ERR, "%s-%d-%d: Invalid frequency mode %d",
-						avalon10->drv->name, avalon10->device_id, i, info->freq_mode[i]);
-				break;
+		/* Adjust fan every 2 seconds*/
+		if (do_adjust_fan) {
+			fan_pwm = adjust_fan(info, i);
+			fan_pwm |= 0x80000000;
+			tmp = be32toh(fan_pwm);
+			memcpy(send_pkg.data + 4, &tmp, 4);
 		}
-		if (update_settings) {
-			cg_wlock(&info->update_lock);
-			avalon10_set_voltage_level(avalon10, i, info->set_voltage_level[i]);
-			for (j = 0; j < info->miner_count[i]; j++)
-				avalon10_set_freq(avalon10, i, j, 0, info->set_frequency[i][j]);
-			if (opt_avalon10_smart_speed)
-				avalon10_set_ss_param(avalon10, i);
-			avalon10_set_finish(avalon10, i);
-			cg_wunlock(&info->update_lock);
+
+		if (info->reboot[i]) {
+			info->reboot[i] = false;
+			send_pkg.data[8] = 0x1;
+		}
+
+		avalon10_init_pkg(&send_pkg, AVA10_P_POLLING, 1, 1);
+		ret = avalon10_iic_xfer_pkg(avalon10, i, &send_pkg, &ar);
+		if (ret == AVA10_SEND_OK)
+			decode_err = decode_pkg(avalon10, &ar, i);
+
+		if (ret != AVA10_SEND_OK || decode_err) {
+			info->error_polling_cnt[i]++;
+			memset(send_pkg.data, 0, AVA10_P_DATA_LEN);
+			avalon10_init_pkg(&send_pkg, AVA10_P_RSTMMTX, 1, 1);
+			avalon10_iic_xfer_pkg(avalon10, i, &send_pkg, NULL);
+			if (info->error_polling_cnt[i] >= 10)
+				detach_module(avalon10, i);
+		}
+
+		if (ret == AVA10_SEND_OK && !decode_err) {
+			info->error_polling_cnt[i] = 0;
+
+			if ((ar.opt == AVA10_P_STATUS) &&
+				(info->mm_dna[i][AVA10_MM_DNA_LEN - 1] != ar.opt)) {
+				applog(LOG_ERR, "%s-%d-%d: Dup address found %d-%d",
+						avalon10->drv->name, avalon10->device_id, i,
+						info->mm_dna[i][AVA10_MM_DNA_LEN - 1], ar.opt);
+				hexdump((uint8_t *)&ar, sizeof(ar));
+				detach_module(avalon10, i);
+			}
 		}
 	}
 
-	/* Step 4: Polling  */
-	cg_rlock(&info->update_lock);
-	polling(avalon10);
-	cg_runlock(&info->update_lock);
-
-	/* Step 5: Calculate mm count */
-	for (i = 1; i < AVA10_DEFAULT_MODULARS; i++) {
-		if (info->enable[i])
-			count++;
-	}
-	info->mm_count = count;
-
-	/* Step 6: Calculate hashes. Use the diff1 value which is scaled by
-	 * device diff and is usually lower than pool diff which will give a
-	 * more stable result, but remove diff rejected shares to more closely
-	 * approximate diff accepted values. */
-	info->pending_diff1 += avalon10->diff1 - info->last_diff1;
-	info->last_diff1 = avalon10->diff1;
-	info->pending_diff1 -= avalon10->diff_rejected - info->last_rej;
-	info->last_rej = avalon10->diff_rejected;
-	if (info->pending_diff1 && !info->firsthash.tv_sec) {
-		cgtime(&info->firsthash);
-		copy_time(&(avalon10->dev_start_tv), &(info->firsthash));
-	}
-
-	if (info->pending_diff1 <= 0)
-		ret = 0;
-	else {
-		ret = info->pending_diff1;
-		info->pending_diff1 = 0;
-	}
-
-	return ret * 0xffffffffull;
+	return 0;
 }
 
 static float avalon10_hash_cal(struct cgpu_info *avalon10, int modular_id)
@@ -2100,8 +1765,6 @@ static float avalon10_hash_cal(struct cgpu_info *avalon10, int modular_id)
 	return mhsmm;
 }
 
-#define STATBUFLEN_WITHOUT_DBG (6 * 1024)
-#define STATBUFLEN_WITH_DBG (6 * 7 * 1024)
 static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 {
 	struct api_data *root = NULL;
@@ -2814,6 +2477,325 @@ static void avalon10_statline_before(char *buf, size_t bufsiz, struct cgpu_info 
 
 	tailsprintf(buf, bufsiz, "%4dMhz %.2fGHS %2dC %.2f%% %3d%%", frequency, ghs_sum, temp,
 				(fail_num + pass_num) ? fail_num * 100.0 / (fail_num + pass_num) : 0, fanmin);
+}
+
+static struct cgpu_info *avalon10_auc_detect(struct libusb_device *dev, struct usb_find_devices *found)
+{
+	int i, modules = 0;
+	struct avalon10_info *info;
+	struct cgpu_info *avalon10 = usb_alloc_cgpu(&avalon10_drv, 1);
+	char auc_ver[AVA10_AUC_VER_LEN];
+
+	if (!usb_init(avalon10, dev, found)) {
+		applog(LOG_ERR, "avalon10 failed usb_init");
+		avalon10 = usb_free_cgpu(avalon10);
+		return NULL;
+	}
+
+	/* avalon10 prefers not to use zero length packets */
+	avalon10->nozlp = true;
+
+	/* We try twice on AUC init */
+	if (avalon10_auc_init(avalon10, auc_ver) && avalon10_auc_init(avalon10, auc_ver))
+		return NULL;
+
+	applog(LOG_INFO, "%s-%d: Found at %s", avalon10->drv->name, avalon10->device_id,
+	       avalon10->device_path);
+
+	avalon10->device_data = cgcalloc(sizeof(struct avalon10_info), 1);
+	memset(avalon10->device_data, 0, sizeof(struct avalon10_info));
+	info = avalon10->device_data;
+	memcpy(info->auc_version, auc_ver, AVA10_AUC_VER_LEN);
+	info->auc_version[AVA10_AUC_VER_LEN] = '\0';
+	info->auc_speed = opt_avalon10_aucspeed;
+	info->auc_xdelay = opt_avalon10_aucxdelay;
+
+	for (i = 0; i < AVA10_DEFAULT_MODULARS; i++)
+		info->enable[i] = 0;
+
+	info->connecter = AVA10_CONNECTER_AUC;
+
+	detect_modules(avalon10);
+	for (i = 0; i < AVA10_DEFAULT_MODULARS; i++)
+		modules += info->enable[i];
+
+	if (!modules) {
+		applog(LOG_INFO, "avalon10 found but no modules initialised");
+		free(info);
+		avalon10 = usb_free_cgpu(avalon10);
+		return NULL;
+	}
+
+	/* We have an avalon10 AUC connected */
+	avalon10->threads = 1;
+	add_cgpu(avalon10);
+
+	update_usb_stats(avalon10);
+
+	return avalon10;
+}
+
+static inline void avalon10_detect(bool __maybe_unused hotplug)
+{
+	usb_detect(&avalon10_drv, avalon10_auc_detect);
+}
+
+static bool avalon10_prepare(struct thr_info *thr)
+{
+	struct cgpu_info *avalon10 = thr->cgpu;
+	struct avalon10_info *info = avalon10->device_data;
+
+	info->last_diff1 = 0;
+	info->pending_diff1 = 0;
+	info->last_rej = 0;
+	info->mm_count = 0;
+	info->xfer_err_cnt = 0;
+	info->pool_no = 0;
+
+	memset(&(info->firsthash), 0, sizeof(info->firsthash));
+	cgtime(&(info->last_fan_adj));
+	cgtime(&info->last_stratum);
+	cgtime(&info->last_detect);
+
+	cglock_init(&info->update_lock);
+	cglock_init(&info->pool0.data_lock);
+	cglock_init(&info->pool1.data_lock);
+	cglock_init(&info->pool2.data_lock);
+
+	return true;
+}
+
+static void avalon10_sswork_flush(struct cgpu_info *avalon10)
+{
+	struct avalon10_info *info = avalon10->device_data;
+	struct thr_info *thr = avalon10->thr[0];
+	struct pool *pool;
+	int coinbase_len_posthash, coinbase_len_prehash;
+
+	applog(LOG_NOTICE, "%s-%d: Flush stratum: restart: %d, update: %d",
+	avalon10->drv->name, avalon10->device_id,
+	thr->work_restart, thr->work_update);
+
+	if (thr->work_restart)
+		info->work_restart = true;
+
+	if (!thr->work_update)
+		return;
+
+	thr->work_update = false;
+
+	cgtime(&info->last_stratum);
+
+	pool = current_pool();
+	if (!pool->has_stratum)
+		quit(1, "%s-%d: MM has to use stratum pools", avalon10->drv->name, avalon10->device_id);
+
+	coinbase_len_prehash = pool->nonce2_offset - (pool->nonce2_offset % SHA256_BLOCK_SIZE);
+	coinbase_len_posthash = pool->coinbase_len - coinbase_len_prehash;
+
+	if (coinbase_len_posthash + SHA256_BLOCK_SIZE > AVA10_P_COINBASE_SIZE) {
+		applog(LOG_ERR, "%s-%d: MM pool modified coinbase length(%d) is more than %d", avalon10->drv->name, avalon10->device_id,
+									coinbase_len_posthash + SHA256_BLOCK_SIZE, AVA10_P_COINBASE_SIZE);
+		return;
+	}
+
+	if (pool->merkles > AVA10_P_MERKLES_COUNT) {
+		applog(LOG_ERR, "%s-%d: MM merkles has to be less then %d", avalon10->drv->name, avalon10->device_id, AVA10_P_MERKLES_COUNT);
+		return;
+	}
+
+	if (pool->n2size < 3) {
+		applog(LOG_ERR, "%s-%d: MM nonce2 size has to be >= 3 (%d)", avalon10->drv->name, avalon10->device_id, pool->n2size);
+		return;
+	}
+
+	cg_wlock(&info->update_lock);
+
+	cg_rlock(&pool->data_lock);
+	info->pool_no = pool->pool_no;
+	copy_pool_stratum(&info->pool2, &info->pool1);
+	copy_pool_stratum(&info->pool1, &info->pool0);
+	copy_pool_stratum(&info->pool0, pool);
+	avalon10_stratum_pkgs(avalon10, pool);
+	cg_runlock(&pool->data_lock);
+
+	avalon10_stratum_finish(avalon10);
+
+	cg_wunlock(&info->update_lock);
+}
+
+static void avalon10_sswork_update(struct cgpu_info *avalon10)
+{
+	struct avalon10_info *info = avalon10->device_data;
+	struct thr_info *thr = avalon10->thr[0];
+	struct pool *pool;
+	int coinbase_len_posthash, coinbase_len_prehash;
+
+	cgtime(&info->last_stratum);
+
+	applog(LOG_NOTICE, "%s-%d: New stratum: restart: %d, update: %d", avalon10->drv->name, avalon10->device_id,
+										thr->work_restart, thr->work_update);
+
+	pool = current_pool();
+	if (!pool->has_stratum)
+		quit(1, "%s-%d: MM has to use stratum pools", avalon10->drv->name, avalon10->device_id);
+
+	coinbase_len_prehash = pool->nonce2_offset - (pool->nonce2_offset % SHA256_BLOCK_SIZE);
+	coinbase_len_posthash = pool->coinbase_len - coinbase_len_prehash;
+
+	if (coinbase_len_posthash + SHA256_BLOCK_SIZE > AVA10_P_COINBASE_SIZE) {
+		applog(LOG_ERR, "%s-%d: MM pool modified coinbase length(%d) is more than %d", avalon10->drv->name, avalon10->device_id,
+									coinbase_len_posthash + SHA256_BLOCK_SIZE, AVA10_P_COINBASE_SIZE);
+		return;
+	}
+
+	if (pool->merkles > AVA10_P_MERKLES_COUNT) {
+		applog(LOG_ERR, "%s-%d: MM merkles has to be less then %d", avalon10->drv->name, avalon10->device_id, AVA10_P_MERKLES_COUNT);
+		return;
+	}
+
+	if (pool->n2size < 3) {
+		applog(LOG_ERR, "%s-%d: MM nonce2 size has to be >= 3 (%d)", avalon10->drv->name, avalon10->device_id, pool->n2size);
+		return;
+	}
+
+	cg_wlock(&info->update_lock);
+
+	cg_rlock(&pool->data_lock);
+	info->pool_no = pool->pool_no;
+	copy_pool_stratum(&info->pool2, &info->pool1);
+	copy_pool_stratum(&info->pool1, &info->pool0);
+	copy_pool_stratum(&info->pool0, pool);
+	avalon10_stratum_pkgs(avalon10, pool);
+	cg_runlock(&pool->data_lock);
+
+	avalon10_stratum_finish(avalon10);
+	cg_wunlock(&info->update_lock);
+}
+
+static int64_t avalon10_scanhash(struct thr_info *thr)
+{
+	struct cgpu_info *avalon10 = thr->cgpu;
+	struct avalon10_info *info = avalon10->device_data;
+	struct timeval current;
+	int i, j, k, count = 0;
+	int temp_max;
+	int64_t ret;
+	bool update_settings = false;
+
+	if ((info->connecter == AVA10_CONNECTER_AUC) &&
+		(unlikely(avalon10->usbinfo.nodev))) {
+		applog(LOG_ERR, "%s-%d: Device disappeared, shutting down thread",
+				avalon10->drv->name, avalon10->device_id);
+		return -1;
+	}
+
+	/* Step 1: Stop polling and detach the device if there is no stratum in 3 minutes, network is down */
+	cgtime(&current);
+	if (tdiff(&current, &(info->last_stratum)) > 180.0) {
+		for (i = 1; i < AVA10_DEFAULT_MODULARS; i++) {
+			if (!info->enable[i])
+				continue;
+			detach_module(avalon10, i);
+		}
+		info->mm_count = 0;
+		return 0;
+	}
+
+	/* Step 2: Try to detect new modules */
+	if ((tdiff(&current, &(info->last_detect)) > AVA10_MODULE_DETECT_INTERVAL) ||
+		!info->mm_count) {
+		cgtime(&info->last_detect);
+		detect_modules(avalon10);
+	}
+
+	/* Step 3: ASIC configrations (voltage and frequency) */
+	for (i = 1; i < AVA10_DEFAULT_MODULARS; i++) {
+		if (!info->enable[i])
+			continue;
+
+		update_settings = false;
+
+		/* Check temperautre */
+		temp_max = get_temp_max(info, i);
+
+		/* Enter too hot */
+		if (temp_max >= info->temp_overheat[i])
+			info->cutoff[i] = 1;
+
+		/* Exit too hot */
+		if (info->cutoff[i] && (temp_max <= (info->temp_overheat[i] - 10)))
+			info->cutoff[i] = 0;
+
+		switch (info->freq_mode[i]) {
+			case AVA10_FREQ_INIT_MODE:
+				update_settings = true;
+				for (j = 0; j < info->miner_count[i]; j++) {
+					for (k = 0; k < AVA10_DEFAULT_PLL_CNT; k++) {
+						if (opt_avalon10_freq[k] != AVA10_DEFAULT_FREQUENCY)
+							info->set_frequency[i][j][k] = opt_avalon10_freq[k];
+					}
+				}
+				avalon10_init_setting(avalon10, i);
+
+				info->freq_mode[i] = AVA10_FREQ_PLLADJ_MODE;
+				break;
+			case AVA10_FREQ_PLLADJ_MODE:
+				if (opt_avalon10_smart_speed == AVA10_DEFAULT_SMARTSPEED_OFF)
+					break;
+
+				/* AVA10_DEFAULT_SMARTSPEED_MODE1: auto speed by A3210 chips */
+				break;
+			default:
+				applog(LOG_ERR, "%s-%d-%d: Invalid frequency mode %d",
+						avalon10->drv->name, avalon10->device_id, i, info->freq_mode[i]);
+				break;
+		}
+		if (update_settings) {
+			cg_wlock(&info->update_lock);
+			avalon10_set_voltage_level(avalon10, i, info->set_voltage_level[i]);
+			for (j = 0; j < info->miner_count[i]; j++)
+				avalon10_set_freq(avalon10, i, j, 0, info->set_frequency[i][j]);
+			if (opt_avalon10_smart_speed)
+				avalon10_set_ss_param(avalon10, i);
+			avalon10_set_finish(avalon10, i);
+			cg_wunlock(&info->update_lock);
+		}
+	}
+
+	/* Step 4: Polling  */
+	cg_rlock(&info->update_lock);
+	polling(avalon10);
+	cg_runlock(&info->update_lock);
+
+	/* Step 5: Calculate mm count */
+	for (i = 1; i < AVA10_DEFAULT_MODULARS; i++) {
+		if (info->enable[i])
+			count++;
+	}
+	info->mm_count = count;
+
+	/* Step 6: Calculate hashes. Use the diff1 value which is scaled by
+	 * device diff and is usually lower than pool diff which will give a
+	 * more stable result, but remove diff rejected shares to more closely
+	 * approximate diff accepted values. */
+	info->pending_diff1 += avalon10->diff1 - info->last_diff1;
+	info->last_diff1 = avalon10->diff1;
+	info->pending_diff1 -= avalon10->diff_rejected - info->last_rej;
+	info->last_rej = avalon10->diff_rejected;
+	if (info->pending_diff1 && !info->firsthash.tv_sec) {
+		cgtime(&info->firsthash);
+		copy_time(&(avalon10->dev_start_tv), &(info->firsthash));
+	}
+
+	if (info->pending_diff1 <= 0)
+		ret = 0;
+	else {
+		ret = info->pending_diff1;
+		info->pending_diff1 = 0;
+	}
+
+	return ret * 0xffffffffull;
 }
 
 struct device_drv avalon10_drv = {
