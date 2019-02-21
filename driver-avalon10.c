@@ -2182,7 +2182,7 @@ static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 		sprintf(buf, " TMax[%d]", get_temp_max(info, i));
 		strcat(statbuf, buf);
 
-		sprintf(buf, " TAverage[%d]", get_temp_average(info, i));
+		sprintf(buf, " TAvg[%d]", get_temp_average(info, i));
 		strcat(statbuf, buf);
 
 		sprintf(buf, " Fan[%d]", info->fan_cpm[i]);
@@ -2362,9 +2362,6 @@ static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 				statbuf[strlen(statbuf) - 1] = ']';
 			}
 		}
-
-		sprintf(buf, " FM[%d]", info->freq_mode[i]);
-		strcat(statbuf, buf);
 
 		strcat(statbuf, " CRC[");
 		for (j = 0; j < info->miner_count[i]; j++) {
