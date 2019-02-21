@@ -231,7 +231,7 @@ struct avalon10_info {
 	uint32_t total_asics[AVA10_DEFAULT_MODULARS];
 	uint32_t max_ntime; /* Maximum: 7200 */
 
-	int mod_type[AVA10_DEFAULT_MODULARS];
+	uint8_t mod_type[AVA10_DEFAULT_MODULARS][8];
 	uint8_t miner_count[AVA10_DEFAULT_MODULARS];
 	uint8_t asic_count[AVA10_DEFAULT_MODULARS];
 
@@ -296,7 +296,6 @@ struct avalon10_iic_info {
 
 struct avalon10_dev_description {
 	uint8_t dev_id_str[8];
-	int mod_type;
 	uint8_t miner_count;	/* it should not greater than AVA10_DEFAULT_MINER_CNT */
 	uint8_t asic_count;	/* asic count each miner, it should not great than AVA10_DEFAULT_ASIC_MAX */
 	int set_voltage_level;

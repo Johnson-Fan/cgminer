@@ -182,7 +182,6 @@ uint32_t cpm_table_point[] =
 struct avalon10_dev_description avalon10_dev_table[] = {
 	{
 		"911",
-		911,
 		2,
 		68,
 		26,
@@ -1350,7 +1349,6 @@ static void detect_modules(struct cgpu_info *avalon10)
 		info->mm_version[i][AVA10_MM_VER_LEN] = '\0';
 		for (dev_index = 0; dev_index < (sizeof(avalon10_dev_table) / sizeof(avalon10_dev_table[0])); dev_index++) {
 			if (!strncmp((char *)&(info->mm_version[i]), (char *)(avalon10_dev_table[dev_index].dev_id_str), 3)) {
-				info->mod_type[i] = avalon10_dev_table[dev_index].mod_type;
 				info->miner_count[i] = avalon10_dev_table[dev_index].miner_count;
 				info->asic_count[i] = avalon10_dev_table[dev_index].asic_count;
 				break;
