@@ -50,7 +50,6 @@ int opt_avalon10_smart_speed = AVA10_DEFAULT_SMART_SPEED;
  * 1. auto speed by A3210 chips
  * 2. option 1 + adjust by average frequency
  */
-bool opt_avalon10_iic_detect = AVA10_DEFAULT_IIC_DETECT;
 
 uint32_t opt_avalon10_th_pass = AVA10_DEFAULT_TH_PASS;
 uint32_t opt_avalon10_th_fail = AVA10_DEFAULT_TH_FAIL;
@@ -834,45 +833,6 @@ static int avalon10_auc_init_pkg(uint8_t *iic_pkg, struct avalon10_iic_info *iic
 	return 0;
 }
 
-static int avalon10_iic_xfer(struct cgpu_info *avalon10, uint8_t slave_addr,
-			    uint8_t *wbuf, int wlen,
-			    uint8_t *rbuf, int rlen)
-{
-	struct avalon10_info *info = avalon10->device_data;
-	struct i2c_ctx *pctx = NULL;
-	int err = 1;
-	bool ret = false;
-
-	pctx = info->i2c_slaves[slave_addr];
-	if (!pctx) {
-		applog(LOG_ERR, "%s-%d: IIC xfer i2c slaves null!", avalon10->drv->name, avalon10->device_id);
-		goto out;
-	}
-
-	if (wbuf) {
-		ret = pctx->write_raw(pctx, wbuf, wlen);
-		if (!ret) {
-			applog(LOG_DEBUG, "%s-%d: IIC xfer write raw failed!", avalon10->drv->name, avalon10->device_id);
-			goto out;
-		}
-	}
-
-	cgsleep_ms(5);
-
-	if (rbuf) {
-		ret = pctx->read_raw(pctx, rbuf, rlen);
-		if (!ret) {
-			applog(LOG_DEBUG, "%s-%d: IIC xfer read raw failed!", avalon10->drv->name, avalon10->device_id);
-			hexdump(rbuf, rlen);
-			goto out;
-		}
-	}
-
-	return 0;
-out:
-	return err;
-}
-
 static int avalon10_auc_xfer(struct cgpu_info *avalon10,
 			    uint8_t *wbuf, int wlen, int *write,
 			    uint8_t *rbuf, int rlen, int *read)
@@ -1058,31 +1018,6 @@ static int avalon10_iic_xfer_pkg(struct cgpu_info *avalon10, uint8_t slave_addr,
 		info->xfer_err_cnt = 0;
 	}
 
-	if (info->connecter == AVA10_CONNECTER_IIC) {
-		err = avalon10_iic_xfer(avalon10, slave_addr, (uint8_t *)pkg, AVA10_WRITE_SIZE, (uint8_t *)ret, AVA10_READ_SIZE);
-		if ((pkg->type != AVA10_P_DETECT) && err) {
-			err = avalon10_iic_xfer(avalon10, slave_addr, (uint8_t *)pkg, AVA10_WRITE_SIZE, (uint8_t *)ret, AVA10_READ_SIZE);
-			applog(LOG_DEBUG, "%s-%d-%d: IIC read again!(type:0x%x, err:%d)", avalon10->drv->name, avalon10->device_id, slave_addr, pkg->type, err);
-		}
-		if (err) {
-			/* FIXME: Don't care broadcast message with no reply, or it will block other thread when called by avalon10_send_bc_pkgs */
-			if ((pkg->type != AVA10_P_DETECT) && (slave_addr == AVA10_MODULE_BROADCAST))
-				return AVA10_SEND_OK;
-
-			if (info->xfer_err_cnt++ == 100) {
-				info->xfer_err_cnt = 0;
-				applog(LOG_DEBUG, "%s-%d-%d: IIC xfer_err_cnt reach err = %d, rcnt = %d, rlen = %d",
-						avalon10->drv->name, avalon10->device_id, slave_addr,
-						err, rcnt, rlen);
-
-				cgsleep_ms(5 * 1000); /* Wait MM reset */
-			}
-			return AVA10_SEND_ERROR;
-		}
-
-		info->xfer_err_cnt = 0;
-	}
-
 	return AVA10_SEND_OK;
 }
 
@@ -1256,53 +1191,6 @@ static void avalon10_stratum_pkgs(struct cgpu_info *avalon10, struct pool *pool)
 		avalon10_auc_getinfo(avalon10);
 }
 
-static struct cgpu_info *avalon10_iic_detect(void)
-{
-	int i;
-	struct avalon10_info *info;
-	struct cgpu_info *avalon10 = NULL;
-	struct i2c_ctx *i2c_slave = NULL;
-
-	i2c_slave = i2c_slave_open(I2C_BUS, 0);
-	if (!i2c_slave) {
-		applog(LOG_ERR, "avalon10 init iic failed\n");
-		return NULL;
-	}
-
-	i2c_slave->exit(i2c_slave);
-	i2c_slave = NULL;
-
-	avalon10 = cgcalloc(1, sizeof(*avalon10));
-	avalon10->drv = &avalon10_drv;
-	avalon10->deven = DEV_ENABLED;
-	avalon10->threads = 1;
-	add_cgpu(avalon10);
-
-	applog(LOG_INFO, "%s-%d: Found at %s", avalon10->drv->name, avalon10->device_id, I2C_BUS);
-
-	avalon10->device_data = cgcalloc(sizeof(struct avalon10_info), 1);
-	memset(avalon10->device_data, 0, sizeof(struct avalon10_info));
-	info = avalon10->device_data;
-
-	for (i = 0; i < AVA10_DEFAULT_MODULARS; i++) {
-		info->enable[i] = false;
-		info->reboot[i] = false;
-		info->i2c_slaves[i] = i2c_slave_open(I2C_BUS, i);
-		if (!info->i2c_slaves[i]) {
-			applog(LOG_ERR, "avalon10 init i2c slaves failed\n");
-			free(avalon10->device_data);
-			avalon10->device_data = NULL;
-			free(avalon10);
-			avalon10 = NULL;
-			return NULL;
-		}
-	}
-
-	info->connecter = AVA10_CONNECTER_IIC;
-
-	return avalon10;
-}
-
 static void detect_modules(struct cgpu_info *avalon10);
 
 static struct cgpu_info *avalon10_auc_detect(struct libusb_device *dev, struct usb_find_devices *found)
@@ -1364,8 +1252,6 @@ static struct cgpu_info *avalon10_auc_detect(struct libusb_device *dev, struct u
 static inline void avalon10_detect(bool __maybe_unused hotplug)
 {
 	usb_detect(&avalon10_drv, avalon10_auc_detect);
-	if (!hotplug && opt_avalon10_iic_detect)
-		avalon10_iic_detect();
 }
 
 static bool avalon10_prepare(struct thr_info *thr)
@@ -2496,8 +2382,6 @@ static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 
 	root = api_add_int(root, "MM Count", &(info->mm_count), true);
 	root = api_add_int(root, "Smart Speed", &opt_avalon10_smart_speed, true);
-	if (info->connecter == AVA10_CONNECTER_IIC)
-		root = api_add_string(root, "Connecter", "IIC", true);
 
 	if (info->connecter == AVA10_CONNECTER_AUC) {
 		root = api_add_string(root, "Connecter", "AUC", true);

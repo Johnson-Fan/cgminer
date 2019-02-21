@@ -89,8 +89,6 @@
 #define AVA10_DEFAULT_ASIC_AVERAGE_TEMP_START	12
 #define AVA10_DEFAULT_ASIC_AVERAGE_TEMP_END	21
 
-#define AVA10_DEFAULT_IIC_DETECT		false
-
 #define AVA10_PWM_MAX                    0x3FF
 #define AVA10_DRV_DIFFMAX		2700
 #define AVA10_ASIC_TIMEOUT_CONST		419430400 /* (2^32 * 1000) / (256 * 40) */
@@ -103,7 +101,6 @@
 #define AVA10_AUC_P_SIZE		64
 
 #define AVA10_CONNECTER_AUC	1
-#define AVA10_CONNECTER_IIC	2
 
 /* avalon10 protocol package type from MM protocol.h */
 #define AVA10_MM_VER_LEN		15
@@ -221,7 +218,7 @@ struct avalon10_info {
 
 	struct i2c_ctx *i2c_slaves[AVA10_DEFAULT_MODULARS];
 
-	uint8_t connecter; /* AUC or IIC */
+	uint8_t connecter; /* AUC or Other */
 
 	/* For modulars */
 	bool enable[AVA10_DEFAULT_MODULARS];
