@@ -1966,6 +1966,65 @@ static void avalon10_set_finish(struct cgpu_info *avalon10, int addr)
 	avalon10_iic_xfer_pkg(avalon10, addr, &send_pkg, NULL);
 }
 
+static void avalon10_sswork_flush(struct cgpu_info *avalon10)
+{
+	struct avalon10_info *info = avalon10->device_data;
+	struct thr_info *thr = avalon10->thr[0];
+	struct pool *pool;
+	int coinbase_len_posthash, coinbase_len_prehash;
+
+	applog(LOG_NOTICE, "%s-%d: Flush stratum: restart: %d, update: %d",
+	avalon10->drv->name, avalon10->device_id,
+	thr->work_restart, thr->work_update);
+
+	if (thr->work_restart)
+		info->work_restart = true;
+
+	if (!thr->work_update)
+		return;
+
+	thr->work_update = false;
+
+	cgtime(&info->last_stratum);
+
+	pool = current_pool();
+	if (!pool->has_stratum)
+		quit(1, "%s-%d: MM has to use stratum pools", avalon10->drv->name, avalon10->device_id);
+
+	coinbase_len_prehash = pool->nonce2_offset - (pool->nonce2_offset % SHA256_BLOCK_SIZE);
+	coinbase_len_posthash = pool->coinbase_len - coinbase_len_prehash;
+
+	if (coinbase_len_posthash + SHA256_BLOCK_SIZE > AVA10_P_COINBASE_SIZE) {
+		applog(LOG_ERR, "%s-%d: MM pool modified coinbase length(%d) is more than %d", avalon10->drv->name, avalon10->device_id,
+									coinbase_len_posthash + SHA256_BLOCK_SIZE, AVA10_P_COINBASE_SIZE);
+		return;
+	}
+
+	if (pool->merkles > AVA10_P_MERKLES_COUNT) {
+		applog(LOG_ERR, "%s-%d: MM merkles has to be less then %d", avalon10->drv->name, avalon10->device_id, AVA10_P_MERKLES_COUNT);
+		return;
+	}
+
+	if (pool->n2size < 3) {
+		applog(LOG_ERR, "%s-%d: MM nonce2 size has to be >= 3 (%d)", avalon10->drv->name, avalon10->device_id, pool->n2size);
+		return;
+	}
+
+	cg_wlock(&info->update_lock);
+
+	cg_rlock(&pool->data_lock);
+	info->pool_no = pool->pool_no;
+	copy_pool_stratum(&info->pool2, &info->pool1);
+	copy_pool_stratum(&info->pool1, &info->pool0);
+	copy_pool_stratum(&info->pool0, pool);
+	avalon10_stratum_pkgs(avalon10, pool);
+	cg_runlock(&pool->data_lock);
+
+	avalon10_stratum_finish(avalon10);
+
+	cg_wunlock(&info->update_lock);
+}
+
 static void avalon10_sswork_update(struct cgpu_info *avalon10)
 {
 	struct avalon10_info *info = avalon10->device_data;
@@ -2903,7 +2962,7 @@ struct device_drv avalon10_drv = {
 	.drv_detect = avalon10_detect,
 	.thread_prepare = avalon10_prepare,
 	.hash_work = hash_driver_work,
-	.flush_work = avalon10_sswork_update,
+	.flush_work = avalon10_sswork_flush,
 	.update_work = avalon10_sswork_update,
 	.scanwork = avalon10_scanhash,
 	.max_diff = AVA10_DRV_DIFFMAX,
