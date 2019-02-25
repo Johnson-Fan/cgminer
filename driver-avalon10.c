@@ -2803,7 +2803,7 @@ static int64_t avalon10_scanhash(struct thr_info *thr)
 		info->pending_diff1 = 0;
 	}
 
-	return ret * 0xffffffffull;
+	return ret * 0x100000000ull;
 }
 
 struct device_drv avalon10_drv = {
