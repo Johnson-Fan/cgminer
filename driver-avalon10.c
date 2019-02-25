@@ -1739,21 +1739,40 @@ static int polling(struct cgpu_info *avalon10)
 		cgsleep_ms(opt_avalon10_polling_delay);
 
 		memset(send_pkg.data, 0, AVA10_P_DATA_LEN);
-		/* Red LED */
+
+		/* White led */
 		tmp = be32toh(info->led_indicator[i]);
 		memcpy(send_pkg.data, &tmp, 4);
 
-		/* Adjust fan every 2 seconds*/
+		/* Reboot */
+		if (info->reboot[i]) {
+			info->reboot[i] = false;
+
+			tmp = be32toh(0x1);
+			memcpy(send_pkg.data + 4, &tmp, 4);
+		}
+
+		/* Adjust fan */
 		if (do_adjust_fan) {
 			fan_pwm = adjust_fan(info, i);
 			fan_pwm |= 0x80000000;
 			tmp = be32toh(fan_pwm);
-			memcpy(send_pkg.data + 4, &tmp, 4);
-		}
+			memcpy(send_pkg.data + 8, &tmp, 4);
 
-		if (info->reboot[i]) {
-			info->reboot[i] = false;
-			send_pkg.data[8] = 0x1;
+			fan_pwm = adjust_fan(info, i);
+			fan_pwm |= 0x80000000;
+			tmp = be32toh(fan_pwm);
+			memcpy(send_pkg.data + 12, &tmp, 4);
+
+			fan_pwm = adjust_fan(info, i);
+			fan_pwm |= 0x80000000;
+			tmp = be32toh(fan_pwm);
+			memcpy(send_pkg.data + 16, &tmp, 4);
+
+			fan_pwm = adjust_fan(info, i);
+			fan_pwm |= 0x80000000;
+			tmp = be32toh(fan_pwm);
+			memcpy(send_pkg.data + 20, &tmp, 4);
 		}
 
 		avalon10_init_pkg(&send_pkg, AVA10_P_POLLING, 1, 1);
