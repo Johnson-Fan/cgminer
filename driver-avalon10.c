@@ -423,6 +423,35 @@ static inline int get_temp_average(struct avalon10_info *info, int addr)
 	return average;
 }
 
+static inline int get_miner_temp_max(struct avalon10_info *info, int addr, int miner)
+{
+	int i;
+	int max = -273;
+
+	for (i = 0; i < info->asic_count[addr]; i++) {
+		if (info->temp[addr][miner][i] > max)
+			max = info->temp[addr][miner][i];
+	}
+
+	return max;
+}
+
+static inline int get_miner_temp_avg(struct avalon10_info *info, int addr, int miner)
+{
+	int i;
+	int sum = 0;
+	int count = 0;
+
+	for (i = 0; i <= info->asic_count[addr]; i++) {
+		if (info->temp[addr][miner][i] > 0) {
+			sum += info->temp[addr][miner][i];
+			count++;
+		}
+	}
+
+	return count ? sum / count : 0;
+}
+
 /*
  * Incremental PID controller
  *
@@ -1905,6 +1934,20 @@ static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 		strcat(statbuf, " MGHS[");
 		for (j = 0; j < info->miner_count[i]; j++) {
 			sprintf(buf, "%.2f ", info->diff1[i][j] / tdiff(&current, &(info->elapsed[i])) * 4.294967296);
+			strcat(statbuf, buf);
+		}
+		statbuf[strlen(statbuf) - 1] = ']';
+
+		strcat(statbuf, " MTmax[");
+		for (j = 0; j < info->miner_count[i]; j++) {
+			sprintf(buf, "%d ", get_miner_temp_max(info, i, j));
+			strcat(statbuf, buf);
+		}
+		statbuf[strlen(statbuf) - 1] = ']';
+
+		strcat(statbuf, " MTavg[");
+		for (j = 0; j < info->miner_count[i]; j++) {
+			sprintf(buf, "%d ", get_miner_temp_avg(info, i, j));
 			strcat(statbuf, buf);
 		}
 		statbuf[strlen(statbuf) - 1] = ']';
