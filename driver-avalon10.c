@@ -621,7 +621,7 @@ static int decode_pkg(struct cgpu_info *avalon10, struct avalon10_ret *ar, int m
 		if (!submit_nonce2_nonce(thr, pool, real_pool, nonce2, nonce, ntime, micro_job_id))
 			info->hw_works_i[modular_id][miner]++;
 		else {
-			info->diff1[modular_id] += (avalon10->diff1 - last_diff1);
+			info->diff1[modular_id][miner] += (avalon10->diff1 - last_diff1);
 			info->chip_matching_work[modular_id][miner][chip_id]++;
 		}
 		break;
@@ -1638,10 +1638,10 @@ static void detect_modules(struct cgpu_info *avalon10)
 			info->hw_works_i[i][j] = 0;
 			info->error_code[i][j] = 0;
 			info->error_crc[i][j] = 0;
+			info->diff1[i][j] = 0;
 		}
 		info->error_code[i][j] = 0;
 		info->error_polling_cnt[i] = 0;
-		info->diff1[i] = 0;
 
 		applog(LOG_NOTICE, "%s-%d: New module detected! ID[%d-%x]",
 		       avalon10->drv->name, avalon10->device_id, i, info->mm_dna[i][AVA10_MM_DNA_LEN - 1]);
@@ -1785,7 +1785,7 @@ static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 	char *statbuf = NULL;
 	struct timeval current;
 	float mhsmm, auc_temp = 0.0;
-	double a, b, dh;
+	double a, b, dh, diff1;
 
 	cgtime(&current);
 	if (opt_debug)
@@ -1888,14 +1888,26 @@ static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 			}
 		}
 
+		diff1 = 0;
+		for (j = 0; j < info->miner_count[i]; j++)
+			diff1 += info->diff1[i][j];
+
 		mhsmm = avalon10_hash_cal(avalon10, i);
-		sprintf(buf, " GHSmm[%.2f] WU[%.2f] Freq[%.2f]", (float)mhsmm / 1000,
-					info->diff1[i] / tdiff(&current, &(info->elapsed[i])) * 60.0,
+		sprintf(buf, " GHSmm[%.2f] GHSavg[%.2f] WU[%.2f] Freq[%.2f]", (float)mhsmm / 1000,
+					diff1 / tdiff(&current, &(info->elapsed[i])) * 4.294967296,
+					diff1 / tdiff(&current, &(info->elapsed[i])) * 60.0,
 					(float)mhsmm / (info->asic_count[i] * info->miner_count[i] * 172));
 		strcat(statbuf, buf);
 
 		sprintf(buf, " Led[%d]", info->led_indicator[i]);
 		strcat(statbuf, buf);
+
+		strcat(statbuf, " MGHS[");
+		for (j = 0; j < info->miner_count[i]; j++) {
+			sprintf(buf, "%.2f ", info->diff1[i][j] / tdiff(&current, &(info->elapsed[i])) * 4.294967296);
+			strcat(statbuf, buf);
+		}
+		statbuf[strlen(statbuf) - 1] = ']';
 
 		for (j = 0; j < info->miner_count[i]; j++) {
 			sprintf(buf, " MW%d[", j);
