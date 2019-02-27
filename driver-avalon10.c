@@ -45,9 +45,16 @@ int opt_avalon10_smart_speed = AVA10_DEFAULT_SMART_SPEED;
 uint32_t opt_avalon10_th_pass = AVA10_DEFAULT_TH_PASS;
 uint32_t opt_avalon10_th_fail = AVA10_DEFAULT_TH_FAIL;
 uint32_t opt_avalon10_th_init = AVA10_DEFAULT_TH_INIT;
-uint32_t opt_avalon10_th_ms = AVA10_DEFAULT_TH_MS;
+uint32_t opt_avalon10_th_mssel = AVA10_DEFAULT_TH_MSSEL;
 uint32_t opt_avalon10_th_timeout = AVA10_DEFAULT_TH_TIMEOUT;
-uint32_t opt_avalon10_th_add = AVA10_DEFAULT_TH_ADD;
+uint32_t opt_avalon10_lv1_th_msadd = AVA10_DEFAULT_LV1_TH_MSADD;
+uint32_t opt_avalon10_lv1_th_ms = AVA10_DEFAULT_LV1_TH_MS;
+uint32_t opt_avalon10_lv2_th_msadd = AVA10_DEFAULT_LV2_TH_MSADD;
+uint32_t opt_avalon10_lv2_th_ms = AVA10_DEFAULT_LV2_TH_MS;
+uint32_t opt_avalon10_lv3_th_msadd = AVA10_DEFAULT_LV3_TH_MSADD;
+uint32_t opt_avalon10_lv3_th_ms = AVA10_DEFAULT_LV3_TH_MS;
+uint32_t opt_avalon10_lv4_th_msadd = AVA10_DEFAULT_LV4_TH_MSADD;
+uint32_t opt_avalon10_lv4_th_ms = AVA10_DEFAULT_LV4_TH_MS;
 uint32_t opt_avalon10_nonce_mask = AVA10_DEFAULT_NONCE_MASK;
 uint32_t opt_avalon10_nonce_check = AVA10_DEFAULT_NONCE_CHECK;
 uint32_t opt_avalon10_mux_l2h = AVA10_DEFAULT_MUX_L2H;
@@ -400,7 +407,7 @@ static inline int get_temp_average(struct avalon10_info *info, int addr)
 	int tmp;
 
 	for (i = 0; i < info->miner_count[addr]; i++) {
-		for (j = AVA10_DEFAULT_ASIC_AVERAGE_TEMP_START; j <= AVA10_DEFAULT_ASIC_AVERAGE_TEMP_END; j++) {
+		for (j = 0; j < AVA10_DEFAULT_ASIC_MAX; j++) {
 			if (info->temp[addr][i][j] > 0) {
 				sum += info->temp[addr][i][j];
 				count++;
@@ -543,8 +550,8 @@ static int decode_pkg(struct cgpu_info *avalon10, struct avalon10_ret *ar, int m
 
 	unsigned short expected_crc;
 	unsigned short actual_crc;
-	uint32_t nonce, nonce2, ntime, miner, chip_id, tmp;
-	uint32_t micro_job_id;
+	uint32_t nonce, nonce2, ntime, miner_id, asic_id, tmp;
+	uint32_t micro_job_id, nonce_valid;
 	uint8_t job_id[2];
 	int pool_no;
 	uint32_t i;
@@ -552,8 +559,6 @@ static int decode_pkg(struct cgpu_info *avalon10, struct avalon10_ret *ar, int m
 	uint16_t vin;
 	uint16_t power_info;
 	uint16_t get_vcore;
-
-	uint32_t asic_id, miner_id;
 
 	if (likely(avalon10->thr))
 		thr = avalon10->thr[0];
@@ -577,81 +582,87 @@ static int decode_pkg(struct cgpu_info *avalon10, struct avalon10_ret *ar, int m
 	switch(ar->type) {
 	case AVA10_P_NONCE:
 		applog(LOG_DEBUG, "%s-%d-%d: AVA10_P_NONCE", avalon10->drv->name, avalon10->device_id, modular_id);
-		memcpy(&miner, ar->data + 0, 4);
-		memcpy(&nonce2, ar->data + 4, 4);
-		memcpy(&ntime, ar->data + 8, 4);
-		memcpy(&nonce, ar->data + 12, 4);
-		job_id[0] = ar->data[16];
-		job_id[1] = ar->data[17];
-		pool_no = (ar->data[18] | (ar->data[19] << 8));
+		/* NOTE: only support 2 nonce2 */
+		for (i = 0; i < 2; i++) {
+			memcpy(&tmp, ar->data + i * 16, 4);
+			tmp = be32toh(tmp);
+			nonce_valid = (tmp >> 28) & 0xf;
+			if (!nonce_valid)
+				continue;
 
-		memcpy(&micro_job_id, ar->data + 20, 4);
-		micro_job_id = be32toh(micro_job_id);
+			micro_job_id = (tmp >> 24) & 0xf;
+			ntime = (tmp >> 16) & 0xff;
+			miner_id = (tmp >> 8) & 0xff;
+			asic_id = tmp & 0xff;
 
-		miner = be32toh(miner);
-		chip_id = (miner >> 16) & 0xffff;
-		miner &= 0xffff;
-		ntime = be32toh(ntime);
-		if (miner >= info->miner_count[modular_id] ||
-		    pool_no >= total_pools || pool_no < 0) {
-			applog(LOG_DEBUG, "%s-%d-%d: Wrong miner/pool_no %d/%d",
-					avalon10->drv->name, avalon10->device_id, modular_id,
-					miner, pool_no);
-			break;
-		}
-		nonce2 = be32toh(nonce2);
-		nonce = be32toh(nonce);
+			memcpy(&tmp, ar->data + i * 16 + 4, 4);
+			nonce = be32toh(tmp);
 
-		if (ntime > info->max_ntime)
-			info->max_ntime = ntime;
+			memcpy(&tmp, ar->data + i * 16 + 8, 4);
+			nonce2 = be32toh(tmp);
 
-		applog(LOG_NOTICE, "%s-%d-%d: Found! P:%d - N2:%08x N:%08x NR:%d/%d [M:%d, A:%d, C:%d - MW: (%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64")]",
-		       avalon10->drv->name, avalon10->device_id, modular_id,
-		       pool_no, nonce2, nonce, ntime, info->max_ntime,
-		       miner, chip_id, nonce & 0x7f,
-		       info->chip_matching_work[modular_id][miner][0],
-		       info->chip_matching_work[modular_id][miner][1],
-		       info->chip_matching_work[modular_id][miner][2],
-		       info->chip_matching_work[modular_id][miner][3]);
+			job_id[0] = ar->data[i * 16 + 12];
+			job_id[1] = ar->data[i * 16 + 13];
+			pool_no = (ar->data[i * 16 + 14] | (ar->data[i * 16 + 15] << 8));
 
-		real_pool = pool = pools[pool_no];
-		if (job_idcmp(job_id, pool->swork.job_id)) {
-			if (!job_idcmp(job_id, pool_stratum0->swork.job_id)) {
-				applog(LOG_DEBUG, "%s-%d-%d: Match to previous stratum0! (%s)",
-						avalon10->drv->name, avalon10->device_id, modular_id,
-						pool_stratum0->swork.job_id);
-				pool = pool_stratum0;
-			} else if (!job_idcmp(job_id, pool_stratum1->swork.job_id)) {
-				applog(LOG_DEBUG, "%s-%d-%d: Match to previous stratum1! (%s)",
-						avalon10->drv->name, avalon10->device_id, modular_id,
-						pool_stratum1->swork.job_id);
-				pool = pool_stratum1;
-			} else if (!job_idcmp(job_id, pool_stratum2->swork.job_id)) {
-				applog(LOG_DEBUG, "%s-%d-%d: Match to previous stratum2! (%s)",
-						avalon10->drv->name, avalon10->device_id, modular_id,
-						pool_stratum2->swork.job_id);
-				pool = pool_stratum2;
-			} else {
-				applog(LOG_ERR, "%s-%d-%d: Cannot match to any stratum! (%s)",
-						avalon10->drv->name, avalon10->device_id, modular_id,
-						pool->swork.job_id);
-				if (likely(thr))
-					inc_hw_errors(thr);
-				info->hw_works_i[modular_id][miner]++;
+			/* Can happen during init sequence before add_cgpu */
+			if (unlikely(!thr))
 				break;
+
+			if ((miner_id >= AVA10_DEFAULT_MINER_CNT) || (asic_id >= AVA10_DEFAULT_ASIC_MAX)) {
+				applog(LOG_NOTICE, "%s-%d-%d: Wrong miner_id:%d or asic_id:%d",
+								avalon10->drv->name, avalon10->device_id, modular_id, miner_id, asic_id);
+				continue;
 			}
-		}
 
-		/* Can happen during init sequence before add_cgpu */
-		if (unlikely(!thr))
-			break;
+			if (pool_no >= total_pools || pool_no < 0) {
+				applog(LOG_DEBUG, "%s-%d-%d: Wrong pool_no %d",
+								avalon10->drv->name, avalon10->device_id, modular_id, pool_no);
+				continue;
+			}
 
-		last_diff1 = avalon10->diff1;
-		if (!submit_nonce2_nonce(thr, pool, real_pool, nonce2, nonce, ntime, micro_job_id))
-			info->hw_works_i[modular_id][miner]++;
-		else {
-			info->diff1[modular_id][miner] += (avalon10->diff1 - last_diff1);
-			info->chip_matching_work[modular_id][miner][chip_id]++;
+			if (ntime > info->max_ntime)
+				info->max_ntime = ntime;
+
+			applog(LOG_NOTICE, "%s-%d-%d: Found! P:%d - N2:%08x N:%08x NR:%d/%d [M:%d, A:%d, C:%d, MID:%d]",
+								avalon10->drv->name, avalon10->device_id, modular_id, pool_no, nonce2,
+								nonce, ntime, info->max_ntime, miner_id, asic_id, nonce & 0xff, micro_job_id);
+
+			real_pool = pool = pools[pool_no];
+			if (job_idcmp(job_id, pool->swork.job_id)) {
+				if (!job_idcmp(job_id, pool_stratum0->swork.job_id)) {
+					applog(LOG_DEBUG, "%s-%d-%d: Match to previous stratum0! (%s)",
+							avalon10->drv->name, avalon10->device_id, modular_id,
+							pool_stratum0->swork.job_id);
+					pool = pool_stratum0;
+				} else if (!job_idcmp(job_id, pool_stratum1->swork.job_id)) {
+					applog(LOG_DEBUG, "%s-%d-%d: Match to previous stratum1! (%s)",
+							avalon10->drv->name, avalon10->device_id, modular_id,
+							pool_stratum1->swork.job_id);
+					pool = pool_stratum1;
+				} else if (!job_idcmp(job_id, pool_stratum2->swork.job_id)) {
+					applog(LOG_DEBUG, "%s-%d-%d: Match to previous stratum2! (%s)",
+							avalon10->drv->name, avalon10->device_id, modular_id,
+							pool_stratum2->swork.job_id);
+					pool = pool_stratum2;
+				} else {
+					applog(LOG_ERR, "%s-%d-%d: Cannot match to any stratum! (%s)",
+							avalon10->drv->name, avalon10->device_id, modular_id,
+							pool->swork.job_id);
+					if (likely(thr))
+						inc_hw_errors(thr);
+					info->hw_works_i[modular_id][miner_id]++;
+					continue;
+				}
+			}
+
+			last_diff1 = avalon10->diff1;
+			if (!submit_nonce2_nonce(thr, pool, real_pool, nonce2, nonce, ntime, micro_job_id))
+				info->hw_works_i[modular_id][miner_id]++;
+			else {
+				info->diff1[modular_id][miner_id] += (avalon10->diff1 - last_diff1);
+				info->chip_matching_work[modular_id][miner_id][asic_id]++;
+			}
 		}
 		break;
 	case AVA10_P_STATUS:
@@ -1428,41 +1439,52 @@ static void avalon10_set_ss_param(struct cgpu_info *avalon10, int addr)
 
 	memset(send_pkg.data, 0, AVA10_P_DATA_LEN);
 
-	tmp = be32toh(opt_avalon10_th_pass);
+	tmp = (opt_avalon10_th_pass << 16) | opt_avalon10_th_fail;
+	tmp = be32toh(tmp);
 	memcpy(send_pkg.data, &tmp, 4);
 	applog(LOG_DEBUG, "%s-%d-%d: avalon10 set th pass %u",
-			avalon10->drv->name, avalon10->device_id, addr,
-			opt_avalon10_th_pass);
-
-	tmp = be32toh(opt_avalon10_th_fail);
-	memcpy(send_pkg.data + 4, &tmp, 4);
+			avalon10->drv->name, avalon10->device_id, addr, opt_avalon10_th_pass);
 	applog(LOG_DEBUG, "%s-%d-%d: avalon10 set th fail %u",
-			avalon10->drv->name, avalon10->device_id, addr,
-			opt_avalon10_th_fail);
+			avalon10->drv->name, avalon10->device_id, addr, opt_avalon10_th_fail);
 
-	tmp = be32toh(opt_avalon10_th_init);
-	memcpy(send_pkg.data + 8, &tmp, 4);
+	tmp = (opt_avalon10_th_mssel << 16) | opt_avalon10_th_init;
+	tmp = be32toh(tmp);
+	memcpy(send_pkg.data + 4, &tmp, 4);
+	applog(LOG_DEBUG, "%s-%d-%d: avalon10 set th mssel %u",
+			avalon10->drv->name, avalon10->device_id, addr, opt_avalon10_th_mssel);
 	applog(LOG_DEBUG, "%s-%d-%d: avalon10 set th init %u",
-			avalon10->drv->name, avalon10->device_id, addr,
-			opt_avalon10_th_init);
-
-	tmp = be32toh(opt_avalon10_th_ms);
-	memcpy(send_pkg.data + 12, &tmp, 4);
-	applog(LOG_DEBUG, "%s-%d-%d: avalon10 set th ms %u",
-			avalon10->drv->name, avalon10->device_id, addr,
-			opt_avalon10_th_ms);
+			avalon10->drv->name, avalon10->device_id, addr, opt_avalon10_th_init);
 
 	tmp = be32toh(opt_avalon10_th_timeout);
-	memcpy(send_pkg.data + 16, &tmp, 4);
+	memcpy(send_pkg.data + 8, &tmp, 4);
 	applog(LOG_DEBUG, "%s-%d-%d: avalon10 set th timeout %u",
-			avalon10->drv->name, avalon10->device_id, addr,
-			opt_avalon10_th_timeout);
+			avalon10->drv->name, avalon10->device_id, addr, opt_avalon10_th_timeout);
 
-	tmp = be32toh(opt_avalon10_th_add);
-	memcpy(send_pkg.data + 20, &tmp, 4);
-	applog(LOG_DEBUG, "%s-%d-%d: avalon10 set th add %u",
-			avalon10->drv->name, avalon10->device_id, addr,
-			opt_avalon10_th_add);
+	tmp = (opt_avalon10_lv2_th_msadd << 31) | (opt_avalon10_lv2_th_ms << 16) |
+	      (opt_avalon10_lv1_th_msadd << 15) |  opt_avalon10_lv1_th_ms;
+	tmp = be32toh(tmp);
+	memcpy(send_pkg.data + 12, &tmp, 4);
+	applog(LOG_DEBUG, "%s-%d-%d: avalon10 set th lv1 msadd %u",
+			avalon10->drv->name, avalon10->device_id, addr, opt_avalon10_lv1_th_msadd);
+	applog(LOG_DEBUG, "%s-%d-%d: avalon10 set th lv1 ms %u",
+			avalon10->drv->name, avalon10->device_id, addr, opt_avalon10_lv1_th_ms);
+	applog(LOG_DEBUG, "%s-%d-%d: avalon10 set th lv2 msadd %u",
+			avalon10->drv->name, avalon10->device_id, addr, opt_avalon10_lv2_th_msadd);
+	applog(LOG_DEBUG, "%s-%d-%d: avalon10 set th lv2 ms %u",
+			avalon10->drv->name, avalon10->device_id, addr, opt_avalon10_lv2_th_ms);
+
+	tmp = (opt_avalon10_lv4_th_msadd << 31) | (opt_avalon10_lv4_th_ms << 16) |
+	      (opt_avalon10_lv3_th_msadd << 15) |  opt_avalon10_lv3_th_ms;
+	tmp = be32toh(tmp);
+	memcpy(send_pkg.data + 16, &tmp, 4);
+	applog(LOG_DEBUG, "%s-%d-%d: avalon10 set th lv4 msadd %u",
+			avalon10->drv->name, avalon10->device_id, addr, opt_avalon10_lv4_th_msadd);
+	applog(LOG_DEBUG, "%s-%d-%d: avalon10 set th lv4 ms %u",
+			avalon10->drv->name, avalon10->device_id, addr, opt_avalon10_lv4_th_ms);
+	applog(LOG_DEBUG, "%s-%d-%d: avalon10 set th lv3 msadd %u",
+			avalon10->drv->name, avalon10->device_id, addr, opt_avalon10_lv3_th_msadd);
+	applog(LOG_DEBUG, "%s-%d-%d: avalon10 set th lv3 ms %u",
+			avalon10->drv->name, avalon10->device_id, addr, opt_avalon10_lv3_th_ms);
 
 	/* Package the data */
 	avalon10_init_pkg(&send_pkg, AVA10_P_SET_SS, 1, 1);
