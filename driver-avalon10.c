@@ -675,21 +675,25 @@ static int decode_pkg(struct cgpu_info *avalon10, struct avalon10_ret *ar, int m
 
 		memcpy(&tmp, ar->data + 4, 4);
 		tmp = be32toh(tmp);
-		info->fan_cpm[modular_id] = tmp;
+		info->fan_cpm[modular_id][0] = tmp;
 
 		memcpy(&tmp, ar->data + 8, 4);
-		info->local_works_i[modular_id][ar->idx] += be32toh(tmp);
+		tmp = be32toh(tmp);
+		info->fan_cpm[modular_id][1] = tmp;
 
 		memcpy(&tmp, ar->data + 12, 4);
-		info->hw_works_i[modular_id][ar->idx] += be32toh(tmp);
+		info->local_works_i[modular_id][ar->idx] += be32toh(tmp);
 
 		memcpy(&tmp, ar->data + 16, 4);
-		info->error_code[modular_id][ar->idx] = be32toh(tmp);
+		info->hw_works_i[modular_id][ar->idx] += be32toh(tmp);
 
 		memcpy(&tmp, ar->data + 20, 4);
-		info->error_code[modular_id][ar->cnt] = be32toh(tmp);
+		info->error_code[modular_id][ar->idx] = be32toh(tmp);
 
 		memcpy(&tmp, ar->data + 24, 4);
+		info->error_code[modular_id][ar->cnt] = be32toh(tmp);
+
+		memcpy(&tmp, ar->data + 28, 4);
 		info->error_crc[modular_id][ar->idx] += be32toh(tmp);
 		break;
 	case AVA10_P_STATUS_VOLT:
@@ -1668,7 +1672,8 @@ static void detect_modules(struct cgpu_info *avalon10)
 		memset(info->get_pll[i], 0, sizeof(uint32_t) * info->miner_count[i] * AVA10_DEFAULT_PLL_CNT);
 
 		info->led_indicator[i] = 0;
-		info->fan_cpm[i] = 0;
+		info->fan_cpm[i][0] = 0;
+		info->fan_cpm[i][1] = 0;
 		info->temp_mm[i] = -273;
 		info->local_works[i] = 0;
 		info->hw_works[i] = 0;
@@ -1929,7 +1934,10 @@ static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 		sprintf(buf, " TAvg[%d]", get_temp_average(info, i));
 		strcat(statbuf, buf);
 
-		sprintf(buf, " Fan[%d]", info->fan_cpm[i]);
+		sprintf(buf, " Fan1[%d]", info->fan_cpm[i][0]);
+		strcat(statbuf, buf);
+
+		sprintf(buf, " Fan2[%d]", info->fan_cpm[i][1]);
 		strcat(statbuf, buf);
 
 		sprintf(buf, " FanR[%d%%]", info->fan_pct[i]);
