@@ -1839,7 +1839,7 @@ static float avalon10_hash_cal(struct cgpu_info *avalon10, int modular_id)
 	for (i = 0; i < info->miner_count[modular_id]; i++) {
 		for (j = 0; j < info->asic_count[modular_id]; j++) {
 			for (k = 0; k < AVA10_DEFAULT_PLL_CNT; k++)
-				mhsmm += (info->get_asic[modular_id][i][j][2 + k] * info->get_frequency[modular_id][i][j][k]);
+				mhsmm += (info->get_asic[modular_id][i][j][2 + k] * info->get_frequency[modular_id][i][j][k] * 4);
 		}
 	}
 
@@ -1966,7 +1966,7 @@ static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 		sprintf(buf, " GHSmm[%.2f] GHSavg[%.2f] WU[%.2f] Freq[%.2f]", (float)mhsmm / 1000,
 					diff1 / tdiff(&current, &(info->elapsed[i])) * 4.294967296,
 					diff1 / tdiff(&current, &(info->elapsed[i])) * 60.0,
-					(float)mhsmm / (info->asic_count[i] * info->miner_count[i] * 172));
+					(float)mhsmm / (info->asic_count[i] * info->miner_count[i] * 236));
 		strcat(statbuf, buf);
 
 		sprintf(buf, " Led[%d]", info->led_indicator[i]);
@@ -2568,7 +2568,7 @@ static void avalon10_statline_before(char *buf, size_t bufsiz, struct cgpu_info 
 			temp = get_temp_max(info, i);
 
 		mhsmm = avalon10_hash_cal(avalon10, i);
-		frequency += (mhsmm / (info->asic_count[i] * info->miner_count[i] * 172));
+		frequency += (mhsmm / (info->asic_count[i] * info->miner_count[i] * 236));
 		ghs_sum += (mhsmm / 1000);
 
 		for (j = 0; j < info->miner_count[i]; j++) {
