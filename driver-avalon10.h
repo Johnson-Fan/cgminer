@@ -175,6 +175,7 @@
 #define AVA10_P_SET_ADJUST_VOLT			0x51
 
 #define AVA10_MODULE_BROADCAST			0
+#define AVA10_ASIC_ID_BROADCAST			0xff
 /* End of avalon10 protocol package type */
 
 #define AVA10_IIC_RESET				0xa0
