@@ -65,6 +65,7 @@
 #define AVA10_DEFAULT_ASIC_MAX			120
 #define AVA10_DEFAULT_PLL_CNT			4
 #define AVA10_DEFAULT_CORE_VOLT_CNT		8
+#define AVA10_DEFAULT_CORE_CLK_SEL		0
 
 #define AVA10_DEFAULT_POLLING_DELAY		10 /* ms */
 
@@ -368,6 +369,7 @@ extern uint32_t opt_avalon10_pid_p;
 extern uint32_t opt_avalon10_pid_i;
 extern uint32_t opt_avalon10_pid_d;
 extern uint32_t opt_avalon10_adjust_voltage;
+extern uint32_t opt_avalon10_core_clk_sel;
 
 #endif /* USE_AVALON10 */
 #endif /* _AVALON10_H_ */

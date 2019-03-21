@@ -71,6 +71,8 @@ uint32_t opt_avalon10_pid_d = AVA10_DEFAULT_PID_D;
 
 uint32_t opt_avalon10_adjust_voltage = AVA10_DEFAULT_ADJUST_VOLTAGE;
 
+uint32_t opt_avalon10_core_clk_sel = AVA10_DEFAULT_CORE_CLK_SEL;
+
 uint32_t cpm_table[] =
 {
 	0x04400000,
@@ -1288,6 +1290,7 @@ static void avalon10_init_setting(struct cgpu_info *avalon10, int addr)
 		tmp = 0;
 	tmp |= (opt_avalon10_nonce_check << 1);
 	tmp |= (opt_avalon10_roll_enable << 2);
+	tmp |= (opt_avalon10_core_clk_sel << 3);
 	send_pkg.data[8] = tmp & 0xff;
 	send_pkg.data[9] = opt_avalon10_nonce_mask & 0xff;
 
