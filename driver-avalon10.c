@@ -556,7 +556,7 @@ static int decode_pkg(struct cgpu_info *avalon10, struct avalon10_ret *ar, int m
 	uint32_t micro_job_id, nonce_valid;
 	uint8_t job_id[2];
 	int pool_no;
-	uint32_t i;
+	uint32_t i, j;
 	int64_t last_diff1;
 	uint16_t vin;
 	uint16_t power_info;
@@ -705,14 +705,11 @@ static int decode_pkg(struct cgpu_info *avalon10, struct avalon10_ret *ar, int m
 		break;
 	case AVA10_P_STATUS_PLL:
 		applog(LOG_DEBUG, "%s-%d-%d: AVA10_P_STATUS_PLL", avalon10->drv->name, avalon10->device_id, modular_id);
-		for (i = 0; i < AVA10_DEFAULT_PLL_CNT; i++) {
-			memcpy(&tmp, ar->data + i * 4, 4);
-			info->get_pll[modular_id][ar->idx][i] = be32toh(tmp);
-
-			memcpy(&tmp, ar->data + AVA10_DEFAULT_PLL_CNT * 4 + i * 4, 4);
-			tmp = be32toh(tmp);
-			if (tmp)
-				info->set_frequency[modular_id][ar->idx][i] = tmp;
+		for (i = 0; i < AVA10_DEFAULT_MINER_CNT; i++) {
+			for (j = 0; j < AVA10_DEFAULT_PLL_CNT; j++) {
+				memcpy(&tmp, ar->data + i * AVA10_DEFAULT_PLL_CNT * 4 + j * 4, 4);
+				info->get_pll[modular_id][i][j] = be32toh(tmp);
+			}
 		}
 		break;
 	case AVA10_P_STATUS_PVT:
