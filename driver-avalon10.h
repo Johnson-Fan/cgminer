@@ -174,6 +174,9 @@
 #define AVA10_P_STATUS_FAC			0x4d
 #define AVA10_P_SET_ADJUST_VOLT			0x51
 
+/* Factory used */
+#define AVA10_P_SET_FAC_PLL			0x50
+
 #define AVA10_MODULE_BROADCAST			0
 #define AVA10_ASIC_ID_BROADCAST			0xff
 /* End of avalon10 protocol package type */

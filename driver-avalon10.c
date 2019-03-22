@@ -1440,6 +1440,22 @@ static void avalon10_set_factory_info(struct cgpu_info *avalon10, int addr, uint
 		avalon10_iic_xfer_pkg(avalon10, addr, &send_pkg, NULL);
 }
 
+static void avalon10_set_factory_pll_info(struct cgpu_info *avalon10, int addr, int val)
+{
+	struct avalon10_pkg send_pkg;
+
+	memset(send_pkg.data, 0, AVA10_P_DATA_LEN);
+
+	send_pkg.data[0] = val;
+
+	/* Package the data */
+	avalon10_init_pkg(&send_pkg, AVA10_P_SET_FAC_PLL, 1, 1);
+	if (addr == AVA10_MODULE_BROADCAST)
+		avalon10_send_bc_pkgs(avalon10, &send_pkg);
+	else
+		avalon10_iic_xfer_pkg(avalon10, addr, &send_pkg, NULL);
+}
+
 static void avalon10_set_ss_param(struct cgpu_info *avalon10, int addr)
 {
 	struct avalon10_pkg send_pkg;
@@ -2380,6 +2396,38 @@ char *set_avalon10_factory_info(struct cgpu_info *avalon10, char *arg)
 	return NULL;
 }
 
+char *set_avalon10_factory_pll_info(struct cgpu_info *avalon10, char *arg)
+{
+	struct avalon10_info *info = avalon10->device_data;
+	int val, addr, i;
+
+	if (!(*arg))
+		return NULL;
+
+	sscanf(arg, "%d-%d", &val, &addr);
+
+	if (addr >= AVA10_DEFAULT_MODULARS) {
+		applog(LOG_ERR, "invalid modular index: %d, valid range 0-%d", addr, (AVA10_DEFAULT_MODULARS - 1));
+		return "Invalid modular index to set_avalon10_factory_pll_info";
+	}
+
+	if (!addr) {
+		for (i = 1; i < AVA10_DEFAULT_MODULARS; i++) {
+			if (!info->enable[i])
+				continue;
+
+			avalon10_set_factory_pll_info(avalon10, i, val);
+		}
+	} else {
+			avalon10_set_factory_pll_info(avalon10, addr, val);
+	}
+
+	applog(LOG_NOTICE, "%s-%d: Update factory-pll info %d-%d",
+			avalon10->drv->name, avalon10->device_id, val, addr);
+
+	return NULL;
+}
+
 char *set_avalon10_adjust_voltage_info(struct cgpu_info *avalon10, char *arg)
 {
 	struct avalon10_info *info = avalon10->device_data;
@@ -2532,6 +2580,15 @@ static char *avalon10_set_device(struct cgpu_info *avalon10, char *option, char 
 		}
 
 		return set_avalon10_factory_info(avalon10, setting);
+	}
+
+	if (strcasecmp(option, "factory-pll") == 0) {
+		if (!setting || !*setting) {
+			sprintf(replybuf, "missing factory-pll info");
+			return replybuf;
+		}
+
+		return set_avalon10_factory_pll_info(avalon10, setting);
 	}
 
 	if (strcasecmp(option, "reboot") == 0) {
