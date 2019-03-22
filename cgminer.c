@@ -1780,6 +1780,9 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_ARG("--avalon10-pid-d",
 		     set_int_0_to_9999, opt_show_intval, &opt_avalon10_pid_d,
 		     "Set Avalon10 pid-d, range 0-9999."),
+	OPT_WITH_ARG("--avalon10-target-diff",
+		     set_int_1_to_65535, opt_show_intval, &opt_avalon10_target_diff,
+		     "Set Avalon10 target difficulty, range 1-65535"),
 #endif
 #ifdef USE_AVALON_MINER
 	OPT_WITH_CBARG("--avalonm-voltage",

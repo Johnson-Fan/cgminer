@@ -371,6 +371,7 @@ extern uint32_t opt_avalon10_pid_i;
 extern uint32_t opt_avalon10_pid_d;
 extern uint32_t opt_avalon10_adjust_voltage;
 extern uint32_t opt_avalon10_core_clk_sel;
+extern uint32_t opt_avalon10_target_diff;
 
 #endif /* USE_AVALON10 */
 #endif /* _AVALON10_H_ */

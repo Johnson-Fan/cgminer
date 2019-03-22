@@ -73,6 +73,8 @@ uint32_t opt_avalon10_adjust_voltage = AVA10_DEFAULT_ADJUST_VOLTAGE;
 
 uint32_t opt_avalon10_core_clk_sel = AVA10_DEFAULT_CORE_CLK_SEL;
 
+uint32_t opt_avalon10_target_diff = AVA10_DRV_DIFFMAX;
+
 uint32_t cpm_table[] =
 {
 	0x04400000,
@@ -1177,10 +1179,12 @@ static void avalon10_stratum_pkgs(struct cgpu_info *avalon10, struct pool *pool)
 	if (avalon10_send_bc_pkgs(avalon10, &pkg))
 		return;
 
-	if (pool->sdiff <= AVA10_DRV_DIFFMAX)
+	if (pool->sdiff <= opt_avalon10_target_diff) {
 		set_target(target, pool->sdiff);
-	else
-		set_target(target, AVA10_DRV_DIFFMAX);
+		opt_avalon10_target_diff = pool->sdiff;
+	} else {
+		set_target(target, opt_avalon10_target_diff);
+	}
 
 	memcpy(pkg.data, target, 32);
 	if (opt_debug) {
@@ -2657,6 +2661,7 @@ static struct cgpu_info *avalon10_auc_detect(struct libusb_device *dev, struct u
 
 	/* We have an avalon10 AUC connected */
 	avalon10->threads = 1;
+	avalon10->drv->max_diff = opt_avalon10_target_diff;
 	add_cgpu(avalon10);
 
 	update_usb_stats(avalon10);
