@@ -1103,6 +1103,11 @@ static void copy_pool_stratum(struct pool *pool_stratum, struct pool *pool)
 
 	memcpy(pool_stratum->ntime, pool->ntime, sizeof(pool_stratum->ntime));
 	memcpy(pool_stratum->header_bin, pool->header_bin, sizeof(pool_stratum->header_bin));
+
+	memcpy(pool_stratum->vmask_001, pool->vmask_001, sizeof(pool_stratum->vmask_001));
+	memcpy(pool_stratum->vmask_002, pool->vmask_002, sizeof(pool_stratum->vmask_002));
+	memcpy(pool_stratum->vmask_003, pool->vmask_003, sizeof(pool_stratum->vmask_003));
+
 	cg_wunlock(&pool_stratum->data_lock);
 }
 
