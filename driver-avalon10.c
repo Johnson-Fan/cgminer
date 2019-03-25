@@ -721,13 +721,16 @@ static int decode_pkg(struct cgpu_info *avalon10, struct avalon10_ret *ar, int m
 
 		if (ar->idx < info->asic_count[modular_id]) {
 			for (i = 0; i < info->miner_count[modular_id]; i++) {
-				memcpy(&tmp, ar->data + i * 4, 2);
+				memcpy(&tmp, ar->data + i * 6, 2);
 				tmp = be16toh(tmp);
 				info->temp[modular_id][i][ar->idx] = decode_pvt_temp(tmp);
 
-				memcpy(&tmp, ar->data + i * 4 + 2, 2);
+				memcpy(&tmp, ar->data + i * 6 + 2, 2);
 				tmp = be16toh(tmp);
 				info->core_volt[modular_id][i][ar->idx][0] = decode_pvt_volt(tmp);
+
+				memcpy(&tmp, ar->data + i * 6 + 4, 2);
+				info->ro[modular_id][i][ar->idx] = be16toh(tmp);
 			}
 		}
 		break;
@@ -2106,6 +2109,18 @@ static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 				strcat(statbuf, buf);
 				for (k = 0; k < info->asic_count[i]; k++) {
 					sprintf(buf, "%d ", info->core_volt[i][j][k][0]);
+					strcat(statbuf, buf);
+				}
+
+				statbuf[strlen(statbuf) - 1] = ']';
+				statbuf[strlen(statbuf)] = '\0';
+			}
+
+			for (j = 0; j < info->miner_count[i]; j++) {
+				sprintf(buf, " PVT_R%d[", j);
+				strcat(statbuf, buf);
+				for (k = 0; k < info->asic_count[i]; k++) {
+					sprintf(buf, "%d ", info->ro[i][j][k]);
 					strcat(statbuf, buf);
 				}
 
