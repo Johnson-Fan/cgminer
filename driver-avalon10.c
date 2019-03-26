@@ -586,87 +586,111 @@ static int decode_pkg(struct cgpu_info *avalon10, struct avalon10_ret *ar, int m
 	switch(ar->type) {
 	case AVA10_P_NONCE:
 		applog(LOG_DEBUG, "%s-%d-%d: AVA10_P_NONCE", avalon10->drv->name, avalon10->device_id, modular_id);
-		/* NOTE: only support 2 nonce2 */
-		for (i = 0; i < 2; i++) {
-			memcpy(&tmp, ar->data + i * 16, 4);
-			tmp = be32toh(tmp);
-			nonce_valid = (tmp >> 28) & 0xf;
-			if (!nonce_valid)
-				continue;
 
-			micro_job_id = (tmp >> 24) & 0xf;
-			ntime = (tmp >> 16) & 0xff;
-			miner_id = (tmp >> 8) & 0xff;
-			asic_id = tmp & 0xff;
+		memcpy(&tmp, ar->data, 4);
+		tmp = be32toh(tmp);
+		nonce_valid = (tmp >> 28) & 0xf;
+		if (!nonce_valid) {
+			applog(LOG_NOTICE, "%s-%d-%d: nonce invalid %x",
+							avalon10->drv->name, avalon10->device_id, modular_id, tmp);
 
-			memcpy(&tmp, ar->data + i * 16 + 4, 4);
-			nonce = be32toh(tmp);
+			info->nonce_get_error_count[modular_id]++;
+			break;
+		}
 
-			memcpy(&tmp, ar->data + i * 16 + 8, 4);
-			nonce2 = be32toh(tmp);
+		micro_job_id = (tmp >> 24) & 0xf;
+		ntime = (tmp >> 16) & 0xff;
+		miner_id = (tmp >> 8) & 0xff;
+		asic_id = tmp & 0xff;
 
-			job_id[0] = ar->data[i * 16 + 12];
-			job_id[1] = ar->data[i * 16 + 13];
-			pool_no = (ar->data[i * 16 + 14] | (ar->data[i * 16 + 15] << 8));
+		memcpy(&tmp, ar->data + 4, 4);
+		nonce = be32toh(tmp);
 
-			/* Can happen during init sequence before add_cgpu */
-			if (unlikely(!thr))
-				break;
+		memcpy(&tmp, ar->data + 8, 4);
+		nonce2 = be32toh(tmp);
 
-			if ((miner_id >= AVA10_DEFAULT_MINER_CNT) || (asic_id >= AVA10_DEFAULT_ASIC_MAX)) {
-				applog(LOG_NOTICE, "%s-%d-%d: Wrong miner_id:%d or asic_id:%d",
-								avalon10->drv->name, avalon10->device_id, modular_id, miner_id, asic_id);
-				continue;
-			}
+		job_id[0] = ar->data[12];
+		job_id[1] = ar->data[13];
+		pool_no = (ar->data[14] | (ar->data[15] << 8));
 
-			if (pool_no >= total_pools || pool_no < 0) {
-				applog(LOG_DEBUG, "%s-%d-%d: Wrong pool_no %d",
-								avalon10->drv->name, avalon10->device_id, modular_id, pool_no);
-				continue;
-			}
+		memcpy(&tmp, ar->data + 16, 4);
+		info->read_write_error_count[modular_id] = be32toh(tmp);
 
-			if (ntime > info->max_ntime)
-				info->max_ntime = ntime;
+		memcpy(&tmp, ar->data + 20, 4);
+		info->produce_nonce_count[modular_id] = be32toh(tmp);
 
-			applog(LOG_NOTICE, "%s-%d-%d: Found! P:%d - N2:%08x N:%08x NR:%d/%d [M:%d, A:%d, C:%d, MID:%d]",
-								avalon10->drv->name, avalon10->device_id, modular_id, pool_no, nonce2,
-								nonce, ntime, info->max_ntime, miner_id, asic_id, nonce & 0xff, micro_job_id);
+		memcpy(&tmp, ar->data + 24, 4);
+		info->get_nonce_count[modular_id] = be32toh(tmp);
 
-			real_pool = pool = pools[pool_no];
-			if (job_idcmp(job_id, pool->swork.job_id)) {
-				if (!job_idcmp(job_id, pool_stratum0->swork.job_id)) {
-					applog(LOG_DEBUG, "%s-%d-%d: Match to previous stratum0! (%s)",
-							avalon10->drv->name, avalon10->device_id, modular_id,
-							pool_stratum0->swork.job_id);
-					pool = pool_stratum0;
-				} else if (!job_idcmp(job_id, pool_stratum1->swork.job_id)) {
-					applog(LOG_DEBUG, "%s-%d-%d: Match to previous stratum1! (%s)",
-							avalon10->drv->name, avalon10->device_id, modular_id,
-							pool_stratum1->swork.job_id);
-					pool = pool_stratum1;
-				} else if (!job_idcmp(job_id, pool_stratum2->swork.job_id)) {
-					applog(LOG_DEBUG, "%s-%d-%d: Match to previous stratum2! (%s)",
-							avalon10->drv->name, avalon10->device_id, modular_id,
-							pool_stratum2->swork.job_id);
-					pool = pool_stratum2;
-				} else {
-					applog(LOG_ERR, "%s-%d-%d: Cannot match to any stratum! (%s)",
-							avalon10->drv->name, avalon10->device_id, modular_id,
-							pool->swork.job_id);
-					if (likely(thr))
-						inc_hw_errors(thr);
-					info->hw_works_i[modular_id][miner_id]++;
-					continue;
-				}
-			}
+		memcpy(&tmp, ar->data + 28, 4);
+		tmp = be32toh(tmp);
+		info->ecc2_mm[modular_id] = (tmp >> 16) & 0xffff;
+		info->ecc2_asic[modular_id] = tmp & 0xffff;
 
-			last_diff1 = avalon10->diff1;
-			if (!submit_nonce2_nonce(thr, pool, real_pool, nonce2, nonce, ntime, micro_job_id))
+		/* Can happen during init sequence before add_cgpu */
+		if (unlikely(!thr))
+			break;
+
+		if ((miner_id >= AVA10_DEFAULT_MINER_CNT) || (asic_id >= AVA10_DEFAULT_ASIC_MAX)) {
+			applog(LOG_NOTICE, "%s-%d-%d: Wrong miner_id:%d or asic_id:%d",
+							avalon10->drv->name, avalon10->device_id, modular_id, miner_id, asic_id);
+
+			info->nonce_get_error_count[modular_id]++;
+			break;
+		}
+
+		if (pool_no >= total_pools || pool_no < 0) {
+			applog(LOG_NOTICE, "%s-%d-%d: Wrong pool_no %d",
+							avalon10->drv->name, avalon10->device_id, modular_id, pool_no);
+
+			info->nonce_get_error_count[modular_id]++;
+			break;
+		}
+
+		if (ntime > info->max_ntime)
+			info->max_ntime = ntime;
+
+		applog(LOG_NOTICE, "%s-%d-%d: Found! P:%d - N2:%08x N:%08x NR:%d/%d [M:%d, A:%d, C:%d, MID:%d]",
+							avalon10->drv->name, avalon10->device_id, modular_id, pool_no, nonce2,
+							nonce, ntime, info->max_ntime, miner_id, asic_id, nonce & 0xff, micro_job_id);
+
+		real_pool = pool = pools[pool_no];
+		if (job_idcmp(job_id, pool->swork.job_id)) {
+			if (!job_idcmp(job_id, pool_stratum0->swork.job_id)) {
+				applog(LOG_DEBUG, "%s-%d-%d: Match to previous stratum0! (%s)",
+						avalon10->drv->name, avalon10->device_id, modular_id,
+						pool_stratum0->swork.job_id);
+				pool = pool_stratum0;
+			} else if (!job_idcmp(job_id, pool_stratum1->swork.job_id)) {
+				applog(LOG_DEBUG, "%s-%d-%d: Match to previous stratum1! (%s)",
+						avalon10->drv->name, avalon10->device_id, modular_id,
+						pool_stratum1->swork.job_id);
+				pool = pool_stratum1;
+			} else if (!job_idcmp(job_id, pool_stratum2->swork.job_id)) {
+				applog(LOG_DEBUG, "%s-%d-%d: Match to previous stratum2! (%s)",
+						avalon10->drv->name, avalon10->device_id, modular_id,
+						pool_stratum2->swork.job_id);
+				pool = pool_stratum2;
+			} else {
+				applog(LOG_NOTICE, "%s-%d-%d: Cannot match to any stratum! (%s)",
+						avalon10->drv->name, avalon10->device_id, modular_id,
+						pool->swork.job_id);
+				if (likely(thr))
+					inc_hw_errors(thr);
 				info->hw_works_i[modular_id][miner_id]++;
-			else {
-				info->diff1[modular_id][miner_id] += (avalon10->diff1 - last_diff1);
-				info->chip_matching_work[modular_id][miner_id][asic_id]++;
+
+				info->nonce_get_error_count[modular_id]++;
+				break;
 			}
+		}
+
+		last_diff1 = avalon10->diff1;
+		if (!submit_nonce2_nonce(thr, pool, real_pool, nonce2, nonce, ntime, micro_job_id)) {
+			info->hw_works_i[modular_id][miner_id]++;
+			info->chip_error_work[modular_id][miner_id][asic_id]++;
+		} else {
+			info->diff1[modular_id][miner_id] += (avalon10->diff1 - last_diff1);
+			info->chip_matching_work[modular_id][miner_id][asic_id]++;
 		}
 		break;
 	case AVA10_P_STATUS:
@@ -1738,6 +1762,7 @@ static void detect_modules(struct cgpu_info *avalon10)
 
 		for (j = 0; j < info->miner_count[i]; j++) {
 			memset(info->chip_matching_work[i][j], 0, sizeof(uint64_t) * info->asic_count[i]);
+			memset(info->chip_error_work[i][j], 0, sizeof(uint64_t) * info->asic_count[i]);
 			info->local_works_i[i][j] = 0;
 			info->hw_works_i[i][j] = 0;
 			info->error_code[i][j] = 0;
@@ -1746,6 +1771,13 @@ static void detect_modules(struct cgpu_info *avalon10)
 		}
 		info->error_code[i][j] = 0;
 		info->error_polling_cnt[i] = 0;
+
+		info->produce_nonce_count[i] = 0;
+		info->get_nonce_count[i] = 0;
+		info->read_write_error_count[i] = 0;
+		info->ecc2_mm[i] = 0;
+		info->ecc2_asic[i] = 0;
+		info->nonce_get_error_count[i] = 0;
 
 		applog(LOG_NOTICE, "%s-%d: New module detected! ID[%d-%x]",
 		       avalon10->drv->name, avalon10->device_id, i, info->mm_dna[i][AVA10_MM_DNA_LEN - 1]);
@@ -2058,6 +2090,55 @@ static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 			statbuf[strlen(statbuf) - 1] = ']';
 		}
 
+		for (j = 0; j < info->miner_count[i]; j++) {
+			sprintf(buf, " MWE%d[", j);
+			strcat(statbuf, buf);
+			for (k = 0; k < info->asic_count[i]; k++) {
+				sprintf(buf, "%"PRIu64" ", info->chip_error_work[i][j][k]);
+				strcat(statbuf, buf);
+			}
+
+			statbuf[strlen(statbuf) - 1] = ']';
+		}
+
+		sprintf(buf, " ECC2_MM[%u]", info->ecc2_mm[i]);
+		strcat(statbuf, buf);
+
+		sprintf(buf, " ECC2_ASIC[%u]", info->ecc2_asic[i]);
+		strcat(statbuf, buf);
+
+		sprintf(buf, " NONCE_INVALID[%u]", info->nonce_get_error_count[i]);
+		strcat(statbuf, buf);
+
+		sprintf(buf, " ReadWriteError[%u]", info->read_write_error_count[i]);
+		strcat(statbuf, buf);
+
+		sprintf(buf, " ProduceNonceCount[%u]", info->produce_nonce_count[i]);
+		strcat(statbuf, buf);
+
+		sprintf(buf, " GetNonceCount[%u]", info->get_nonce_count[i]);
+		strcat(statbuf, buf);
+
+		{
+			uint32_t sum = 0;
+			for (j = 0; j < info->miner_count[i]; j++) {
+				for (k = 0; k < info->asic_count[i]; k++)
+					sum += info->chip_matching_work[i][j][k];
+			}
+
+			sprintf(buf, " MW_SUM[%u]", sum);
+			strcat(statbuf, buf);
+
+			sum = 0;
+			for (j = 0; j < info->miner_count[i]; j++) {
+				for (k = 0; k < info->asic_count[i]; k++)
+					sum += info->chip_error_work[i][j][k];
+			}
+
+			sprintf(buf, " MWE_SUM[%u]", sum);
+			strcat(statbuf, buf);
+		}
+
 		sprintf(buf, " TA[%d]", info->total_asics[i]);
 		strcat(statbuf, buf);
 
@@ -2198,13 +2279,6 @@ static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 				statbuf[strlen(statbuf) - 1] = ']';
 			}
 		}
-
-		strcat(statbuf, " CRC[");
-		for (j = 0; j < info->miner_count[i]; j++) {
-			sprintf(buf, "%d ", info->error_crc[i][j]);
-			strcat(statbuf, buf);
-		}
-		statbuf[strlen(statbuf) - 1] = ']';
 
 		sprintf(buf, "MM ID%d", i);
 		root = api_add_string(root, buf, statbuf, true);

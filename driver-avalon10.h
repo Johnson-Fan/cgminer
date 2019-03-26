@@ -304,6 +304,7 @@ struct avalon10_info {
 	uint64_t hw_works[AVA10_DEFAULT_MODULARS];
 	uint64_t hw_works_i[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_MINER_CNT];
 	uint64_t chip_matching_work[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_MINER_CNT][AVA10_DEFAULT_ASIC_MAX];
+	uint64_t chip_error_work[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_MINER_CNT][AVA10_DEFAULT_ASIC_MAX];
 
 	uint32_t error_code[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_MINER_CNT + 1];
 	uint32_t error_crc[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_MINER_CNT];
@@ -312,6 +313,15 @@ struct avalon10_info {
 	uint64_t diff1[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_MINER_CNT];
 
 	uint16_t power_info[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_POWER_INFO_CNT];
+
+	uint32_t produce_nonce_count[AVA10_DEFAULT_MODULARS];
+	uint32_t get_nonce_count[AVA10_DEFAULT_MODULARS];
+	uint32_t read_write_error_count[AVA10_DEFAULT_MODULARS];
+
+	uint32_t ecc2_mm[AVA10_DEFAULT_MODULARS];
+	uint32_t ecc2_asic[AVA10_DEFAULT_MODULARS];
+
+	uint32_t nonce_get_error_count[AVA10_DEFAULT_MODULARS];
 
 	bool conn_overloaded;
 };
