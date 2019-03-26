@@ -2002,16 +2002,14 @@ static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 		}
 		statbuf[strlen(statbuf) - 1] = ']';
 
-		if (opt_debug) {
-			for (j = 0; j < info->miner_count[i]; j++) {
-				sprintf(buf, " PLL%d[", j);
+		for (j = 0; j < info->miner_count[i]; j++) {
+			sprintf(buf, " PLL%d[", j);
+			strcat(statbuf, buf);
+			for (k = 0; k < AVA10_DEFAULT_PLL_CNT; k++) {
+				sprintf(buf, "%d ", info->get_pll[i][j][k]);
 				strcat(statbuf, buf);
-				for (k = 0; k < AVA10_DEFAULT_PLL_CNT; k++) {
-					sprintf(buf, "%d ", info->get_pll[i][j][k]);
-					strcat(statbuf, buf);
-				}
-				statbuf[strlen(statbuf) - 1] = ']';
 			}
+			statbuf[strlen(statbuf) - 1] = ']';
 		}
 
 		diff1 = 0;
