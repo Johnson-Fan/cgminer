@@ -2192,7 +2192,7 @@ static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 				for (k = 0; k < info->asic_count[i]; k++) {
 					mhsmm = 0;
 					for (l = 2; l < 6; l++) {
-						mhsmm += (info->get_asic[i][j][k][l] * info->get_frequency[i][j][k][l - 2]);
+						mhsmm += (info->get_asic[i][j][k][l] * info->get_frequency[i][j][k][l - 2] * 4);
 					}
 					sprintf(buf, "%7.2f ", mhsmm / 1000);
 					strcat(statbuf, buf);
