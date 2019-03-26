@@ -1677,7 +1677,7 @@ static struct opt_table opt_config_table[] = {
 #ifdef USE_AVALON10
 	OPT_WITH_CBARG("--avalon10-voltage-level",
 		     set_avalon10_voltage_level, NULL, &opt_set_avalon10_voltage_level,
-		     "Set Avalon10 default level of core voltage, range:[0, 15], step: 1"),
+		     "Set Avalon10 default level of core voltage, range:[0, 75], step: 1"),
 	OPT_WITH_CBARG("--avalon10-voltage-level-offset",
 		     set_avalon10_voltage_level_offset, NULL, &opt_set_avalon10_voltage_level_offset,
 		     "Set Avalon10 default offset of core voltage level, range:[-2, 1], step: 1"),
