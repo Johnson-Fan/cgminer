@@ -7875,7 +7875,7 @@ bool submit_nonce2_nonce(struct thr_info *thr, struct pool *pool, struct pool *r
 	work->work_block = work_block;
 	work->pool->works++;
 
-	work->micro_job_id = 1 << micro_job_id;
+	work->micro_job_id = micro_job_id ? (1 << micro_job_id) : 0;
 	memcpy(work->data, &pool->vmask_001[work->micro_job_id], 4);
 
 	work->mined = true;
