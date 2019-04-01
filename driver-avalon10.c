@@ -733,11 +733,6 @@ static int decode_pkg(struct cgpu_info *avalon10, struct avalon10_ret *ar, int m
 			}
 		}
 		break;
-	case AVA10_P_STATUS_FAC:
-		applog(LOG_DEBUG, "%s-%d-%d: AVA10_P_STATUS_FAC", avalon10->drv->name, avalon10->device_id, modular_id);
-		info->factory_info[modular_id][0] = ar->data[0];
-		info->factory_info[modular_id][AVA10_DEFAULT_FACTORY_INFO_CNT] = ar->data[1];
-		break;
 	default:
 		applog(LOG_DEBUG, "%s-%d-%d: Unknown response %x", avalon10->drv->name, avalon10->device_id, modular_id, ar->type);
 		break;
@@ -2356,33 +2351,26 @@ char *set_avalon10_device_freq(struct cgpu_info *avalon10, char *arg)
 char *set_avalon10_factory_info(struct cgpu_info *avalon10, char *arg)
 {
 	struct avalon10_info *info = avalon10->device_data;
-	char type[AVA10_DEFAULT_FACTORY_INFO_1_CNT];
+	char type[AVA10_DEFAULT_FACTORY_INFO_CNT];
 	int val, i;
 
 	if (!(*arg))
 		return NULL;
 
-	memset(type, 0, AVA10_DEFAULT_FACTORY_INFO_1_CNT);
+	memset(type, 0, AVA10_DEFAULT_FACTORY_INFO_CNT);
 
-	sscanf(arg, "%d-%s", &val, type);
-
-	if ((val != AVA10_DEFAULT_FACTORY_INFO_0_IGNORE) &&
-				(val < AVA10_DEFAULT_FACTORY_INFO_0_MIN || val > AVA10_DEFAULT_FACTORY_INFO_0_MAX))
-		return "Invalid value passed to set_avalon10_factory_info";
+	sscanf(arg, "%s", type);
 
 	for (i = 1; i < AVA10_DEFAULT_MODULARS; i++) {
 		if (!info->enable[i])
 			continue;
 
-		info->factory_info[i][0] = val;
-
-		memcpy(&info->factory_info[i][1], type, AVA10_DEFAULT_FACTORY_INFO_1_CNT);
+		hex2bin(&info->factory_info[i][0], type, AVA10_DEFAULT_FACTORY_INFO_CNT);
 
 		avalon10_set_factory_info(avalon10, i, (uint8_t *)info->factory_info[i]);
 	}
 
-	applog(LOG_NOTICE, "%s-%d: Update factory info %d",
-		avalon10->drv->name, avalon10->device_id, val);
+	applog(LOG_NOTICE, "%s-%d: Update factory info", avalon10->drv->name, avalon10->device_id);
 
 	return NULL;
 }
