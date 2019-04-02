@@ -63,7 +63,6 @@ uint32_t opt_avalon10_h2ltime0_spd = AVA10_DEFAULT_H2LTIME0_SPD;
 uint32_t opt_avalon10_roll_enable = AVA10_DEFAULT_ROLL_ENABLE;
 uint32_t opt_avalon10_spdlow = AVA10_DEFAULT_SPDLOW;
 uint32_t opt_avalon10_spdhigh = AVA10_DEFAULT_SPDHIGH;
-uint32_t opt_avalon10_tbase = AVA10_DEFAULT_TBASE;
 
 uint32_t opt_avalon10_pid_p = AVA10_DEFAULT_PID_P;
 uint32_t opt_avalon10_pid_i = AVA10_DEFAULT_PID_I;
@@ -1283,11 +1282,6 @@ static void avalon10_init_setting(struct cgpu_info *avalon10, int addr)
 	applog(LOG_DEBUG, "%s-%d-%d: avalon10 set spdhigh %u",
 			avalon10->drv->name, avalon10->device_id, addr,
 			opt_avalon10_spdhigh);
-
-	send_pkg.data[30] = opt_avalon10_tbase & 0xff;
-	applog(LOG_DEBUG, "%s-%d-%d: avalon10 set tbase %u",
-			avalon10->drv->name, avalon10->device_id, addr,
-			opt_avalon10_tbase);
 
 	/* Package the data */
 	avalon10_init_pkg(&send_pkg, AVA10_P_SET, 1, 1);

@@ -85,7 +85,6 @@
 #define AVA10_DEFAULT_ROLL_ENABLE		1
 #define AVA10_DEFAULT_SPDLOW			3
 #define AVA10_DEFAULT_SPDHIGH			4
-#define AVA10_DEFAULT_TBASE			0
 
 /* PID CONTROLLER*/
 #define AVA10_DEFAULT_PID_P		 	2
@@ -362,7 +361,6 @@ extern uint32_t opt_avalon10_h2ltime0_spd;
 extern uint32_t opt_avalon10_roll_enable;
 extern uint32_t opt_avalon10_spdlow;
 extern uint32_t opt_avalon10_spdhigh;
-extern uint32_t opt_avalon10_tbase;
 extern uint32_t opt_avalon10_pid_p;
 extern uint32_t opt_avalon10_pid_i;
 extern uint32_t opt_avalon10_pid_d;
