@@ -806,7 +806,10 @@ static int avalon10_auc_xfer(struct cgpu_info *avalon10,
 		goto out;
 	}
 
-	cgsleep_ms(opt_avalon10_aucxdelay / 4800 + 1);
+	if (rlen)
+		cgsleep_ms(opt_avalon10_aucxdelay / 4800 + 1);
+	else
+		cgsleep_ms(opt_avalon10_aucxdelay / 9600 + 1);
 
 	rlen += 4;		/* Add 4 bytes IIC header */
 	err = usb_read(avalon10, (char *)rbuf, rlen, read, C_AVA10_READ);
