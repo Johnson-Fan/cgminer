@@ -2841,6 +2841,9 @@ static int64_t avalon10_scanhash(struct thr_info *thr)
 	int64_t ret;
 	bool update_settings = false;
 
+	if (thr->work_restart)
+		return 0;
+
 	if ((info->connecter == AVA10_CONNECTER_AUC) &&
 		(unlikely(avalon10->usbinfo.nodev))) {
 		applog(LOG_ERR, "%s-%d: Device disappeared, shutting down thread",
