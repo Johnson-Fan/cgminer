@@ -169,6 +169,7 @@
 /* Factory used */
 #define AVA10_P_SET_FAC_PLL			0x50
 #define AVA10_P_SET_FAC_VOLT			0x51
+#define AVA10_P_SET_SS_SWITCH			0x52
 
 #define AVA10_MODULE_BROADCAST			0
 #define AVA10_ASIC_ID_BROADCAST			0xff
