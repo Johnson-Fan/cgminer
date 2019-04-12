@@ -41,6 +41,7 @@ int opt_avalon10_aucspeed = AVA10_AUC_SPEED;
 int opt_avalon10_aucxdelay = AVA10_AUC_XDELAY;
 
 int opt_avalon10_smart_speed = AVA10_DEFAULT_SMART_SPEED;
+int opt_avalon10_ssdn_pro = AVA10_DEFAULT_SSDN_PRO;
 
 uint32_t opt_avalon10_th_pass = AVA10_DEFAULT_TH_PASS;
 uint32_t opt_avalon10_th_fail = AVA10_DEFAULT_TH_FAIL;
@@ -1253,6 +1254,7 @@ static void avalon10_init_setting(struct cgpu_info *avalon10, int addr)
 	tmp |= (opt_avalon10_nonce_check << 1);
 	tmp |= (opt_avalon10_roll_enable << 2);
 	tmp |= (opt_avalon10_core_clk_sel << 3);
+	tmp |= (opt_avalon10_ssdn_pro << 4);
 	send_pkg.data[8] = tmp & 0xff;
 	send_pkg.data[9] = opt_avalon10_nonce_mask & 0xff;
 

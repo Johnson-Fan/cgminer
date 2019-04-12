@@ -63,6 +63,7 @@
 #define AVA10_DEFAULT_POLLING_DELAY		10 /* ms */
 
 #define AVA10_DEFAULT_SMART_SPEED		1
+#define AVA10_DEFAULT_SSDN_PRO			0
 
 #define AVA10_DEFAULT_TH_PASS			7
 #define AVA10_DEFAULT_TH_FAIL			1000
@@ -340,6 +341,7 @@ extern int opt_avalon10_polling_delay;
 extern int opt_avalon10_aucspeed;
 extern int opt_avalon10_aucxdelay;
 extern int opt_avalon10_smart_speed;
+extern int opt_avalon10_ssdn_pro;
 extern bool opt_avalon10_iic_detect;
 extern int opt_avalon10_freq_sel;
 extern uint32_t opt_avalon10_th_pass;
