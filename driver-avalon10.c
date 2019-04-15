@@ -22,8 +22,6 @@ int opt_avalon10_temp_target = AVA10_DEFAULT_TEMP_TARGET;
 int opt_avalon10_fan_min = AVA10_DEFAULT_FAN_MIN;
 int opt_avalon10_fan_max = AVA10_DEFAULT_FAN_MAX;
 
-int opt_avalon10_hash_od = AVA10_DEFAULT_HASH_OD;
-
 int opt_avalon10_voltage_level = AVA10_INVALID_VOLTAGE_LEVEL;
 int opt_avalon10_voltage_level_offset = AVA10_DEFAULT_VOLTAGE_LEVEL_OFFSET;
 
@@ -420,6 +418,66 @@ static inline int get_miner_temp_avg(struct avalon10_info *info, int addr, int m
 
 	return count ? sum / count : 0;
 }
+static inline int calculate_temp_target_sum(struct avalon10_info *info, int addr)
+{
+	return info->temp_target[addr] * info->miner_count[addr] * AVA10_DEFAULT_ASIC_MAX;
+}
+static inline int calculate_temp_sum_max(struct avalon10_info *info, int addr)
+{
+	return AVA10_DEFAULT_PID_TEMP_MAX * info->miner_count[addr] * AVA10_DEFAULT_ASIC_MAX;
+}
+static inline int calculate_temp_sum_min(struct avalon10_info *info, int addr)
+{
+	return AVA10_DEFAULT_PID_TEMP_MIN * info->miner_count[addr] * AVA10_DEFAULT_ASIC_MAX;
+}
+static inline int get_temp_max_weight_for_ic_num(struct avalon10_info *info, int addr)
+{
+	int i, j;
+	int max = -273;
+
+	for (i = 0; i < info->miner_count[addr]; i++) {
+		for (j = 0; j < info->asic_count[addr]; j++) {
+			if (info->temp[addr][i][j] > max)
+				max = info->temp[addr][i][j];
+		}
+	}
+
+	if (max < info->temp_mm[addr])
+		max = info->temp_mm[addr];
+
+	return max * info->miner_count[addr] * info->asic_count[addr];
+}
+
+static inline int get_temp_sum(struct avalon10_info *info, int addr)
+{
+	int i, j;
+	int sumer = -273;
+	int sum = 0;
+	int tmp_avg = 0;
+
+	tmp_avg = get_temp_average(info,addr);
+	sumer = sumer * info->miner_count[addr] * AVA10_DEFAULT_ASIC_MAX;
+	for (i = 0; i < info->miner_count[addr]; i++) {
+		for (j = 0; j < AVA10_DEFAULT_ASIC_MAX; j++) {
+			if (info->temp[addr][i][j] > 0) {
+				sum += info->temp[addr][i][j];
+			}
+			else{
+				sum += tmp_avg;
+			}
+		}
+	}
+
+	if (sumer < sum)
+		sumer = sum;
+
+	sum = 0;
+
+	if (sumer < (info->temp_mm[addr] * info->miner_count[addr] * AVA10_DEFAULT_ASIC_MAX))
+		sumer = info->temp_mm[addr] * info->miner_count[addr] * AVA10_DEFAULT_ASIC_MAX;
+
+	return sumer;
+}
 
 /*
  * Incremental PID controller
@@ -433,7 +491,7 @@ static inline int get_miner_temp_avg(struct avalon10_info *info, int addr, int m
  */
 static inline uint32_t adjust_fan(struct avalon10_info *info, int id)
 {
-	int t, ta, temp;
+	int t, temp,t_sum;
 	double delta_u;
 	double delta_p, delta_i, delta_d;
 	uint32_t pwm;
@@ -441,12 +499,12 @@ static inline uint32_t adjust_fan(struct avalon10_info *info, int id)
 	static uint8_t flag = 0;
 	static uint16_t time_count = 0;
 
-	t = get_temp_max(info, id);
-	ta = get_temp_average(info, id);
+	t = get_temp_max_weight_for_ic_num(info, id);
+	t_sum = get_temp_sum(info,id);
 
 	/* Before 10Mins, used max temp */
 	if (time_count > 300) {
-		if ((t > AVA10_DEFAULT_PID_TEMP_MAX) || flag) {
+		if ((t > calculate_temp_sum_max(info, id)) || flag) {
 			temp = t;
 
 			if (!flag)
@@ -457,7 +515,7 @@ static inline uint32_t adjust_fan(struct avalon10_info *info, int id)
 				count = 0;
 			}
 		} else {
-			temp = ta;
+			temp = t_sum;
 		}
 	} else {
 		temp = t;
@@ -467,11 +525,11 @@ static inline uint32_t adjust_fan(struct avalon10_info *info, int id)
 	/* update target error */
 	info->pid_e[id][2] = info->pid_e[id][1];
 	info->pid_e[id][1] = info->pid_e[id][0];
-	info->pid_e[id][0] = temp - info->temp_target[id];
+	info->pid_e[id][0] = temp - calculate_temp_target_sum(info, id);
 
-	if (temp > AVA10_DEFAULT_PID_TEMP_MAX) {
+	if (temp > calculate_temp_sum_max(info, id)) {
 		info->pid_u[id] = opt_avalon10_fan_max;
-	} else if (temp < AVA10_DEFAULT_PID_TEMP_MIN && info->pid_0[id] == 0) {
+	} else if ((temp < calculate_temp_sum_min(info, id)) && info->pid_0[id] == 0) {
 		info->pid_u[id] = opt_avalon10_fan_min;
 	} else if (!info->pid_0[id]) {
 			/* first, init u as t */
@@ -483,8 +541,8 @@ static inline uint32_t adjust_fan(struct avalon10_info *info, int id)
 		delta_d = info->pid_d[id] * (info->pid_e[id][0] - 2 * info->pid_e[id][1] + info->pid_e[id][2]);
 
 		/*Parameter I is int type(1, 2, 3...), but should be used as a smaller value (such as 0.1, 0.01...)*/
-		delta_u = delta_p + delta_i / 100 + delta_d;
-
+		delta_u = delta_p + delta_i / 100 + delta_d /100;
+		delta_u = delta_u / 24;
 		info->pid_u[id] += delta_u;
 	}
 
@@ -494,12 +552,15 @@ static inline uint32_t adjust_fan(struct avalon10_info *info, int id)
 	if (info->pid_u[id] < opt_avalon10_fan_min)
 		info->pid_u[id] = opt_avalon10_fan_min;
 
+	pwm = get_fan_pwm((int)(info->pid_u[id] + 0.5));
+
 	/* Round from float to int */
-	info->fan_pct[id] = (int)(info->pid_u[id] + 0.5);
-	pwm = get_fan_pwm(info->fan_pct[id]);
+	info->fan_pct[id] = ((int)(info->pid_u[id] + 0.5)) * 100 / 1023;
 
 	return pwm;
+
 }
+
 
 static int decode_pkg(struct cgpu_info *avalon10, struct avalon10_ret *ar, int modular_id)
 {
@@ -1298,33 +1359,6 @@ static void avalon10_init_setting(struct cgpu_info *avalon10, int addr)
 		avalon10_iic_xfer_pkg(avalon10, addr, &send_pkg, NULL);
 }
 
-static void avalon10_set_hash_od(struct cgpu_info *avalon10, int addr, unsigned int hash_od[])
-{
-	struct avalon10_info *info = avalon10->device_data;
-	struct avalon10_pkg send_pkg;
-	uint32_t tmp;
-	uint8_t i;
-
-	memset(send_pkg.data, 0, AVA10_P_DATA_LEN);
-
-	/* NOTE: miner_count should <= 8 */
-	for (i = 0; i < info->miner_count[addr]; i++) {
-		tmp = be32toh(hash_od[i]);
-		memcpy(send_pkg.data + i * 4, &tmp, 4);
-	}
-
-	applog(LOG_DEBUG, "%s-%d-%d: avalon10 set hash od miner %d, (%d-%d)",
-			avalon10->drv->name, avalon10->device_id, addr,
-			i, hash_od[0], hash_od[info->miner_count[addr] - 1]);
-
-	/* Package the data */
-	avalon10_init_pkg(&send_pkg, AVA10_P_SET_HASH_OD, 1, 1);
-	if (addr == AVA10_MODULE_BROADCAST)
-		avalon10_send_bc_pkgs(avalon10, &send_pkg);
-	else
-		avalon10_iic_xfer_pkg(avalon10, addr, &send_pkg, NULL);
-}
-
 static void avalon10_set_voltage_level(struct cgpu_info *avalon10, int addr, unsigned int voltage[])
 {
 	struct avalon10_info *info = avalon10->device_data;
@@ -1721,8 +1755,6 @@ static void detect_modules(struct cgpu_info *avalon10)
 			else
 				info->set_voltage_level[i][j] = opt_avalon10_voltage_level;
 
-			info->set_hash_od[i][j] = opt_avalon10_hash_od;
-
 			for (k = 0; k < info->asic_count[i]; k++)
 				info->temp[i][j][k] = -273;
 
@@ -1783,7 +1815,6 @@ static void detect_modules(struct cgpu_info *avalon10)
 
 		avalon10_init_setting(avalon10, i);
 
-		avalon10_set_hash_od(avalon10, i, info->set_hash_od[i]);
 		avalon10_set_voltage_level(avalon10, i, info->set_voltage_level[i]);
 
 		for (j = 0; j < info->miner_count[i]; j++)
@@ -1992,10 +2023,21 @@ static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 		sprintf(buf, " Temp[%d]", info->temp_mm[i]);
 		strcat(statbuf, buf);
 
+		sprintf(buf, " Temptarget[%d]", info->temp_target[i] * 240);
+		strcat(statbuf, buf);
+
+
 		sprintf(buf, " TMax[%d]", get_temp_max(info, i));
 		strcat(statbuf, buf);
 
+		sprintf(buf, " Tmax_sum[%d]", get_temp_max_weight_for_ic_num(info, i));
+		strcat(statbuf, buf);
+
+
 		sprintf(buf, " TAvg[%d]", get_temp_average(info, i));
+		strcat(statbuf, buf);
+
+		sprintf(buf, " Tsum[%d]", get_temp_sum(info, i));
 		strcat(statbuf, buf);
 
 		sprintf(buf, " Fan1[%d]", info->fan_cpm[i][0]);
@@ -2005,6 +2047,21 @@ static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 		strcat(statbuf, buf);
 
 		sprintf(buf, " FanR[%d%%]", info->fan_pct[i]);
+		strcat(statbuf, buf);
+
+		sprintf(buf, " Fan_P[%d]", info->pid_p[i]);
+		strcat(statbuf, buf);
+
+		sprintf(buf, " Fan_I[%d]", info->pid_i[i]);
+		strcat(statbuf, buf);
+
+		sprintf(buf, " Fan_D[%d]", info->pid_d[i]);
+		strcat(statbuf, buf);
+
+		sprintf(buf, " PID_E[%d]", info->pid_e[i][0]);
+		strcat(statbuf, buf);
+
+		sprintf(buf, " PID_U[%d]", (int)info->pid_u[i]);
 		strcat(statbuf, buf);
 
 		sprintf(buf, " Vo[%d]", info->get_voltage[i][0]);
@@ -2245,73 +2302,6 @@ static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 	root = api_add_uint32(root, "Nonce Mask", &opt_avalon10_nonce_mask, true);
 
 	return root;
-}
-
-/* format: hash-od[-addr[-miner]]
- * addr[0, AVA10_DEFAULT_MODULARS - 1], 0 means all modulars
- * miner[0, miner_count], 0 means all miners
- */
-char *set_avalon10_device_hash_od(struct cgpu_info *avalon10, char *arg)
-{
-	struct avalon10_info *info = avalon10->device_data;
-	int val;
-	unsigned int addr = 0, i, j;
-	uint32_t miner_id = 0;
-
-	if (!(*arg))
-		return NULL;
-
-	sscanf(arg, "%d-%d-%d", &val, &addr, &miner_id);
-
-	if (val < AVA10_DEFAULT_HASH_OD_MIN|| val > AVA10_DEFAULT_HASH_OD_MAX)
-		return "Invalid value passed to set_avalon10_device_hash_od";
-
-	if (addr >= AVA10_DEFAULT_MODULARS) {
-		applog(LOG_ERR, "invalid modular index: %d, valid range 0-%d", addr, (AVA10_DEFAULT_MODULARS - 1));
-		return "Invalid modular index to set_avalon10_device_hash_od";
-	}
-
-	if (!addr) {
-		for (i = 1; i < AVA10_DEFAULT_MODULARS; i++) {
-			if (!info->enable[i])
-				continue;
-
-			if (miner_id > info->miner_count[i]) {
-				applog(LOG_ERR, "invalid miner index: %d, valid range 0-%d", miner_id, info->miner_count[i]);
-				return "Invalid miner index to set_avalon10_device_hash_od";
-			}
-
-			if (miner_id)
-				info->set_hash_od[i][miner_id - 1] = val;
-			else {
-				for (j = 0; j < info->miner_count[i]; j++)
-					info->set_hash_od[i][j] = val;
-			}
-			avalon10_set_hash_od(avalon10, i, info->set_hash_od[i]);
-		}
-	} else {
-		if (!info->enable[addr]) {
-			applog(LOG_ERR, "Disabled modular:%d", addr);
-			return "Disabled modular to set_avalon10_device_hash_od";
-		}
-
-		if (miner_id > info->miner_count[addr]) {
-			applog(LOG_ERR, "invalid miner index: %d, valid range 0-%d", miner_id, info->miner_count[addr]);
-			return "Invalid miner index to set_avalon10_device_hash_od";
-		}
-
-		if (miner_id)
-			info->set_hash_od[addr][miner_id - 1] = val;
-		else {
-			for (j = 0; j < info->miner_count[addr]; j++)
-				info->set_hash_od[addr][j] = val;
-		}
-		avalon10_set_hash_od(avalon10, addr, info->set_hash_od[addr]);
-	}
-
-	applog(LOG_NOTICE, "%s-%d: Update hash-od to %d", avalon10->drv->name, avalon10->device_id, val);
-
-	return NULL;
 }
 
 /* format: voltage[-addr[-miner]]
@@ -2769,15 +2759,6 @@ static char *avalon10_set_device(struct cgpu_info *avalon10, char *option, char 
 				val, info->led_indicator[val] ? "on" : "off");
 
 		return NULL;
-	}
-
-	if (strcasecmp(option, "hash-od") == 0) {
-		if (!setting || !*setting) {
-			sprintf(replybuf, "missing hash-od value");
-			return replybuf;
-		}
-
-		return set_avalon10_device_hash_od(avalon10, setting);
 	}
 
 	if (strcasecmp(option, "voltage-level") == 0) {

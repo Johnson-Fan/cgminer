@@ -23,12 +23,12 @@
 	*((str) + 0) = (uint8_t) ((x) >> 24);	\
 }
 
-#define get_fan_pwm(v)				(AVA10_PWM_MAX - (v) * AVA10_PWM_MAX / 100)
+#define get_fan_pwm(v)				(AVA10_PWM_MAX - (v))
 
 #ifdef USE_AVALON10
 
-#define AVA10_DEFAULT_FAN_MIN			5 /* % */
-#define AVA10_DEFAULT_FAN_MAX			100
+#define AVA10_DEFAULT_FAN_MIN			50 /* % */
+#define AVA10_DEFAULT_FAN_MAX			1023
 
 #define AVA10_DEFAULT_TEMP_MIN			0
 #define AVA10_DEFAULT_TEMP_MAX			100
@@ -39,10 +39,6 @@
 #define AVA10_DEFAULT_VOLTAGE_LEVEL_MIN		0
 #define AVA10_DEFAULT_VOLTAGE_LEVEL_MAX		75
 #define AVA10_INVALID_VOLTAGE_LEVEL		-1
-
-#define AVA10_DEFAULT_HASH_OD_MIN		0
-#define AVA10_DEFAULT_HASH_OD			0
-#define AVA10_DEFAULT_HASH_OD_MAX		1
 
 #define AVA10_DEFAULT_VOLTAGE_LEVEL_OFFSET_MIN	-2
 #define AVA10_DEFAULT_VOLTAGE_LEVEL_OFFSET	0
@@ -176,7 +172,6 @@
 #define AVA10_P_SET_FAC_VOLT			0x51
 #define AVA10_P_SET_SS_SWITCH			0x52
 #define AVA10_P_SET_SSDN_PRO			0x53
-#define AVA10_P_SET_HASH_OD			0x54
 
 #define AVA10_MODULE_BROADCAST			0
 #define AVA10_ASIC_ID_BROADCAST			0xff
@@ -287,7 +282,6 @@ struct avalon10_info {
 	int pid_e[AVA10_DEFAULT_MODULARS][3];
 	int pid_0[AVA10_DEFAULT_MODULARS];
 
-	int set_hash_od[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_MINER_CNT];
 	int set_voltage_level[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_MINER_CNT];
 	uint32_t set_frequency[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_MINER_CNT][AVA10_DEFAULT_PLL_CNT];
 	uint32_t get_frequency[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_MINER_CNT][AVA10_DEFAULT_ASIC_MAX][AVA10_DEFAULT_PLL_CNT];
@@ -350,7 +344,6 @@ extern int opt_avalon10_smart_speed;
 extern int opt_avalon10_ssdn_pro;
 extern bool opt_avalon10_iic_detect;
 extern int opt_avalon10_freq_sel;
-extern int opt_avalon10_hash_od;
 extern uint32_t opt_avalon10_th_pass;
 extern uint32_t opt_avalon10_th_fail;
 extern uint32_t opt_avalon10_th_init;
