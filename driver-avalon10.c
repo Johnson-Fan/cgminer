@@ -22,6 +22,8 @@ int opt_avalon10_temp_target = AVA10_DEFAULT_TEMP_TARGET;
 int opt_avalon10_fan_min = AVA10_DEFAULT_FAN_MIN;
 int opt_avalon10_fan_max = AVA10_DEFAULT_FAN_MAX;
 
+int opt_avalon10_hash_od = AVA10_DEFAULT_HASH_OD;
+
 int opt_avalon10_voltage_level = AVA10_INVALID_VOLTAGE_LEVEL;
 int opt_avalon10_voltage_level_offset = AVA10_DEFAULT_VOLTAGE_LEVEL_OFFSET;
 
@@ -1359,6 +1361,33 @@ static void avalon10_init_setting(struct cgpu_info *avalon10, int addr)
 		avalon10_iic_xfer_pkg(avalon10, addr, &send_pkg, NULL);
 }
 
+static void avalon10_set_hash_od(struct cgpu_info *avalon10, int addr, unsigned int hash_od[])
+{
+	struct avalon10_info *info = avalon10->device_data;
+	struct avalon10_pkg send_pkg;
+	uint32_t tmp;
+	uint8_t i;
+
+	memset(send_pkg.data, 0, AVA10_P_DATA_LEN);
+
+	/* NOTE: miner_count should <= 8 */
+	for (i = 0; i < info->miner_count[addr]; i++) {
+		tmp = be32toh(hash_od[i]);
+		memcpy(send_pkg.data + i * 4, &tmp, 4);
+	}
+
+	applog(LOG_DEBUG, "%s-%d-%d: avalon10 set hash od miner %d, (%d-%d)",
+			avalon10->drv->name, avalon10->device_id, addr,
+			i, hash_od[0], hash_od[info->miner_count[addr] - 1]);
+
+	/* Package the data */
+	avalon10_init_pkg(&send_pkg, AVA10_P_SET_HASH_OD, 1, 1);
+	if (addr == AVA10_MODULE_BROADCAST)
+		avalon10_send_bc_pkgs(avalon10, &send_pkg);
+	else
+		avalon10_iic_xfer_pkg(avalon10, addr, &send_pkg, NULL);
+}
+
 static void avalon10_set_voltage_level(struct cgpu_info *avalon10, int addr, unsigned int voltage[])
 {
 	struct avalon10_info *info = avalon10->device_data;
@@ -1755,6 +1784,8 @@ static void detect_modules(struct cgpu_info *avalon10)
 			else
 				info->set_voltage_level[i][j] = opt_avalon10_voltage_level;
 
+			info->set_hash_od[i][j] = opt_avalon10_hash_od;
+
 			for (k = 0; k < info->asic_count[i]; k++)
 				info->temp[i][j][k] = -273;
 
@@ -1815,6 +1846,7 @@ static void detect_modules(struct cgpu_info *avalon10)
 
 		avalon10_init_setting(avalon10, i);
 
+		avalon10_set_hash_od(avalon10, i, info->set_hash_od[i]);
 		avalon10_set_voltage_level(avalon10, i, info->set_voltage_level[i]);
 
 		for (j = 0; j < info->miner_count[i]; j++)
@@ -2304,6 +2336,73 @@ static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 	return root;
 }
 
+/* format: hash-od[-addr[-miner]]
+ * addr[0, AVA10_DEFAULT_MODULARS - 1], 0 means all modulars
+ * miner[0, miner_count], 0 means all miners
+ */
+char *set_avalon10_device_hash_od(struct cgpu_info *avalon10, char *arg)
+{
+	struct avalon10_info *info = avalon10->device_data;
+	int val;
+	unsigned int addr = 0, i, j;
+	uint32_t miner_id = 0;
+
+	if (!(*arg))
+		return NULL;
+
+	sscanf(arg, "%d-%d-%d", &val, &addr, &miner_id);
+
+	if (val < AVA10_DEFAULT_HASH_OD_MIN|| val > AVA10_DEFAULT_HASH_OD_MAX)
+		return "Invalid value passed to set_avalon10_device_hash_od";
+
+	if (addr >= AVA10_DEFAULT_MODULARS) {
+		applog(LOG_ERR, "invalid modular index: %d, valid range 0-%d", addr, (AVA10_DEFAULT_MODULARS - 1));
+		return "Invalid modular index to set_avalon10_device_hash_od";
+	}
+
+	if (!addr) {
+		for (i = 1; i < AVA10_DEFAULT_MODULARS; i++) {
+			if (!info->enable[i])
+				continue;
+
+			if (miner_id > info->miner_count[i]) {
+				applog(LOG_ERR, "invalid miner index: %d, valid range 0-%d", miner_id, info->miner_count[i]);
+				return "Invalid miner index to set_avalon10_device_hash_od";
+			}
+
+			if (miner_id)
+				info->set_hash_od[i][miner_id - 1] = val;
+			else {
+				for (j = 0; j < info->miner_count[i]; j++)
+					info->set_hash_od[i][j] = val;
+			}
+			avalon10_set_hash_od(avalon10, i, info->set_hash_od[i]);
+		}
+	} else {
+		if (!info->enable[addr]) {
+			applog(LOG_ERR, "Disabled modular:%d", addr);
+			return "Disabled modular to set_avalon10_device_hash_od";
+		}
+
+		if (miner_id > info->miner_count[addr]) {
+			applog(LOG_ERR, "invalid miner index: %d, valid range 0-%d", miner_id, info->miner_count[addr]);
+			return "Invalid miner index to set_avalon10_device_hash_od";
+		}
+
+		if (miner_id)
+			info->set_hash_od[addr][miner_id - 1] = val;
+		else {
+			for (j = 0; j < info->miner_count[addr]; j++)
+				info->set_hash_od[addr][j] = val;
+		}
+		avalon10_set_hash_od(avalon10, addr, info->set_hash_od[addr]);
+	}
+
+	applog(LOG_NOTICE, "%s-%d: Update hash-od to %d", avalon10->drv->name, avalon10->device_id, val);
+
+	return NULL;
+}
+
 /* format: voltage[-addr[-miner]]
  * addr[0, AVA10_DEFAULT_MODULARS - 1], 0 means all modulars
  * miner[0, miner_count], 0 means all miners
@@ -2759,6 +2858,15 @@ static char *avalon10_set_device(struct cgpu_info *avalon10, char *option, char 
 				val, info->led_indicator[val] ? "on" : "off");
 
 		return NULL;
+	}
+
+	if (strcasecmp(option, "hash-od") == 0) {
+		if (!setting || !*setting) {
+			sprintf(replybuf, "missing hash-od value");
+			return replybuf;
+		}
+
+		return set_avalon10_device_hash_od(avalon10, setting);
 	}
 
 	if (strcasecmp(option, "voltage-level") == 0) {
