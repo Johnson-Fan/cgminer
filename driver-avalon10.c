@@ -242,8 +242,8 @@ char *set_avalon10_fan(char *arg)
 	if (val1 < 0 || val1 > 100 || val2 < 0 || val2 > 100 || val2 < val1)
 		return "Invalid value passed to avalon10-fan";
 
-	opt_avalon10_fan_min = val1;
-	opt_avalon10_fan_max = val2;
+	opt_avalon10_fan_min = val1 * AVA10_DEFAULT_FAN_MAX / 100;
+	opt_avalon10_fan_max = val2 * AVA10_DEFAULT_FAN_MAX / 100;
 
 	return NULL;
 }
@@ -557,7 +557,7 @@ static inline uint32_t adjust_fan(struct avalon10_info *info, int id)
 	pwm = get_fan_pwm((int)(info->pid_u[id] + 0.5));
 
 	/* Round from float to int */
-	info->fan_pct[id] = ((int)(info->pid_u[id] + 0.5)) * 100 / 1023;
+	info->fan_pct[id] = ((int)(info->pid_u[id] + 0.5)) * 100 / AVA10_DEFAULT_FAN_MAX;
 
 	return pwm;
 
@@ -2808,7 +2808,8 @@ static char *avalon10_set_device(struct cgpu_info *avalon10, char *option, char 
 
 		applog(LOG_NOTICE, "%s-%d: Update fan to %d-%d",
 		       avalon10->drv->name, avalon10->device_id,
-		       opt_avalon10_fan_min, opt_avalon10_fan_max);
+		       opt_avalon10_fan_min * 100 / AVA10_DEFAULT_FAN_MAX, 
+		       opt_avalon10_fan_max * 100 / AVA10_DEFAULT_FAN_MAX);
 
 		return NULL;
 	}
