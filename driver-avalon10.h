@@ -23,8 +23,6 @@
 	*((str) + 0) = (uint8_t) ((x) >> 24);	\
 }
 
-#define get_fan_pwm(v)				(AVA10_PWM_MAX - (v))
-
 #ifdef USE_AVALON10
 
 #define AVA10_DEFAULT_FAN_MIN			50 /* % */
@@ -91,13 +89,6 @@
 #define AVA10_DEFAULT_SPDLOW			3
 #define AVA10_DEFAULT_SPDHIGH			4
 
-/* PID CONTROLLER*/
-#define AVA10_DEFAULT_PID_P		 	10
-#define AVA10_DEFAULT_PID_I			10
-#define AVA10_DEFAULT_PID_D			3
-#define AVA10_DEFAULT_PID_TEMP_MIN		50
-#define AVA10_DEFAULT_PID_TEMP_MAX		100
-
 #define AVA10_DEFAULT_ADJUST_VOLTAGE		1
 
 #define AVA10_DEFAULT_ASIC_AVERAGE_TEMP_START	12
@@ -142,12 +133,14 @@
 #define AVA10_P_VMASK				0x19
 
 /* Broadcase or with I2C address */
-#define AVA10_P_SET				0x20
+#define AVA10_P_SET					0x20
 #define AVA10_P_SET_FIN				0x21
 #define AVA10_P_SET_VOLT			0x22
 #define AVA10_P_SET_PMU				0x24
 #define AVA10_P_SET_PLL				0x25
 #define AVA10_P_SET_SS				0x26
+
+
 /* 0x27 reserved */
 #define AVA10_P_SET_FAC				0x28
 
@@ -276,16 +269,7 @@ struct avalon10_info {
 
 	int ro[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_MINER_CNT][AVA10_DEFAULT_ASIC_MAX];
 
-	int temp_target[AVA10_DEFAULT_MODULARS];
 	int temp_overheat[AVA10_DEFAULT_MODULARS];
-
-	/* pid controler*/
-	int pid_p[AVA10_DEFAULT_MODULARS];
-	int pid_i[AVA10_DEFAULT_MODULARS];
-	int pid_d[AVA10_DEFAULT_MODULARS];
-	double pid_u[AVA10_DEFAULT_MODULARS];
-	int pid_e[AVA10_DEFAULT_MODULARS][3];
-	int pid_0[AVA10_DEFAULT_MODULARS];
 
 	int set_hash_od[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_MINER_CNT];
 	int set_voltage_level[AVA10_DEFAULT_MODULARS][AVA10_DEFAULT_MINER_CNT];
@@ -338,7 +322,6 @@ struct avalon10_dev_description {
 #define AVA10_SEND_OK	0
 #define AVA10_SEND_ERROR -1
 
-extern char *set_avalon10_fan(char *arg);
 extern char *set_avalon10_freq(char *arg);
 extern char *set_avalon10_voltage_level(char *arg);
 extern char *set_avalon10_voltage_level_offset(char *arg);
@@ -372,9 +355,6 @@ extern uint32_t opt_avalon10_h2ltime0_spd;
 extern uint32_t opt_avalon10_roll_enable;
 extern uint32_t opt_avalon10_spdlow;
 extern uint32_t opt_avalon10_spdhigh;
-extern uint32_t opt_avalon10_pid_p;
-extern uint32_t opt_avalon10_pid_i;
-extern uint32_t opt_avalon10_pid_d;
 extern uint32_t opt_avalon10_adjust_voltage;
 extern uint32_t opt_avalon10_core_clk_sel;
 extern uint32_t opt_avalon10_target_diff;

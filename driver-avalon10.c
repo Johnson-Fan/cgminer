@@ -67,10 +67,6 @@ uint32_t opt_avalon10_roll_enable = AVA10_DEFAULT_ROLL_ENABLE;
 uint32_t opt_avalon10_spdlow = AVA10_DEFAULT_SPDLOW;
 uint32_t opt_avalon10_spdhigh = AVA10_DEFAULT_SPDHIGH;
 
-uint32_t opt_avalon10_pid_p = AVA10_DEFAULT_PID_P;
-uint32_t opt_avalon10_pid_i = AVA10_DEFAULT_PID_I;
-uint32_t opt_avalon10_pid_d = AVA10_DEFAULT_PID_D;
-
 uint32_t opt_avalon10_adjust_voltage = AVA10_DEFAULT_ADJUST_VOLTAGE;
 
 uint32_t opt_avalon10_core_clk_sel = AVA10_DEFAULT_CORE_CLK_SEL;
@@ -227,25 +223,6 @@ static inline void sha256_prehash(const unsigned char *message, unsigned int len
 
 	for (i = 0; i < 8; i++)
 		UNPACK32(ctx.h[i], &digest[i << 2]);
-}
-
-char *set_avalon10_fan(char *arg)
-{
-	int val1, val2, ret;
-
-	ret = sscanf(arg, "%d-%d", &val1, &val2);
-	if (ret < 1)
-		return "No value passed to avalon10-fan";
-	if (ret == 1)
-		val2 = val1;
-
-	if (val1 < 0 || val1 > 100 || val2 < 0 || val2 > 100 || val2 < val1)
-		return "Invalid value passed to avalon10-fan";
-
-	opt_avalon10_fan_min = val1 * AVA10_DEFAULT_FAN_MAX / 100;
-	opt_avalon10_fan_max = val2 * AVA10_DEFAULT_FAN_MAX / 100;
-
-	return NULL;
 }
 
 char *set_avalon10_freq(char *arg)
@@ -420,149 +397,6 @@ static inline int get_miner_temp_avg(struct avalon10_info *info, int addr, int m
 
 	return count ? sum / count : 0;
 }
-static inline int calculate_temp_target_sum(struct avalon10_info *info, int addr)
-{
-	return info->temp_target[addr] * info->miner_count[addr] * AVA10_DEFAULT_ASIC_MAX;
-}
-static inline int calculate_temp_sum_max(struct avalon10_info *info, int addr)
-{
-	return AVA10_DEFAULT_PID_TEMP_MAX * info->miner_count[addr] * AVA10_DEFAULT_ASIC_MAX;
-}
-static inline int calculate_temp_sum_min(struct avalon10_info *info, int addr)
-{
-	return AVA10_DEFAULT_PID_TEMP_MIN * info->miner_count[addr] * AVA10_DEFAULT_ASIC_MAX;
-}
-static inline int get_temp_max_weight_for_ic_num(struct avalon10_info *info, int addr)
-{
-	int i, j;
-	int max = -273;
-
-	for (i = 0; i < info->miner_count[addr]; i++) {
-		for (j = 0; j < info->asic_count[addr]; j++) {
-			if (info->temp[addr][i][j] > max)
-				max = info->temp[addr][i][j];
-		}
-	}
-
-	if (max < info->temp_mm[addr])
-		max = info->temp_mm[addr];
-
-	return max * info->miner_count[addr] * info->asic_count[addr];
-}
-
-static inline int get_temp_sum(struct avalon10_info *info, int addr)
-{
-	int i, j;
-	int sumer = -273;
-	int sum = 0;
-	int tmp_avg = 0;
-
-	tmp_avg = get_temp_average(info,addr);
-	sumer = sumer * info->miner_count[addr] * AVA10_DEFAULT_ASIC_MAX;
-	for (i = 0; i < info->miner_count[addr]; i++) {
-		for (j = 0; j < AVA10_DEFAULT_ASIC_MAX; j++) {
-			if (info->temp[addr][i][j] > 0) {
-				sum += info->temp[addr][i][j];
-			}
-			else{
-				sum += tmp_avg;
-			}
-		}
-	}
-
-	if (sumer < sum)
-		sumer = sum;
-
-	sum = 0;
-
-	if (sumer < (info->temp_mm[addr] * info->miner_count[addr] * AVA10_DEFAULT_ASIC_MAX))
-		sumer = info->temp_mm[addr] * info->miner_count[addr] * AVA10_DEFAULT_ASIC_MAX;
-
-	return sumer;
-}
-
-/*
- * Incremental PID controller
- *
- * controller input: u, output: t
- *
- * delta_u = P * [e(k) - e(k-1)] + I * e(k) + D * [e(k) - 2*e(k-1) + e(k-2)];
- * e(k) = t(k) - t[target];
- * u(k) = u(k-1) + delta_u;
- *
- */
-static inline uint32_t adjust_fan(struct avalon10_info *info, int id)
-{
-	int t, temp,t_sum;
-	double delta_u;
-	double delta_p, delta_i, delta_d;
-	uint32_t pwm;
-	static uint8_t count = 0;
-	static uint8_t flag = 0;
-	static uint16_t time_count = 0;
-
-	t = get_temp_max_weight_for_ic_num(info, id);
-	t_sum = get_temp_sum(info,id);
-
-	/* Before 10Mins, used max temp */
-	if (time_count > 300) {
-		if ((t > calculate_temp_sum_max(info, id)) || flag) {
-			temp = t;
-
-			if (!flag)
-				flag = 1;
-
-			if (count++ > 5) {
-				flag = 0;
-				count = 0;
-			}
-		} else {
-			temp = t_sum;
-		}
-	} else {
-		temp = t;
-		time_count++;
-	}
-
-	/* update target error */
-	info->pid_e[id][2] = info->pid_e[id][1];
-	info->pid_e[id][1] = info->pid_e[id][0];
-	info->pid_e[id][0] = temp - calculate_temp_target_sum(info, id);
-
-	if (temp > calculate_temp_sum_max(info, id)) {
-		info->pid_u[id] = opt_avalon10_fan_max;
-	} else if ((temp < calculate_temp_sum_min(info, id)) && info->pid_0[id] == 0) {
-		info->pid_u[id] = opt_avalon10_fan_min;
-	} else if (!info->pid_0[id]) {
-			/* first, init u as t */
-			info->pid_0[id] = 1;
-			info->pid_u[id] = temp;
-	} else {
-		delta_p = info->pid_p[id] * (info->pid_e[id][0] - info->pid_e[id][1]);
-		delta_i = info->pid_i[id] * info->pid_e[id][0];
-		delta_d = info->pid_d[id] * (info->pid_e[id][0] - 2 * info->pid_e[id][1] + info->pid_e[id][2]);
-
-		/*Parameter I is int type(1, 2, 3...), but should be used as a smaller value (such as 0.1, 0.01...)*/
-		delta_u = delta_p + delta_i / 100 + delta_d /100;
-		delta_u = delta_u / 24;
-		info->pid_u[id] += delta_u;
-	}
-
-	if(info->pid_u[id] > opt_avalon10_fan_max)
-		info->pid_u[id] = opt_avalon10_fan_max;
-
-	if (info->pid_u[id] < opt_avalon10_fan_min)
-		info->pid_u[id] = opt_avalon10_fan_min;
-
-	pwm = get_fan_pwm((int)(info->pid_u[id] + 0.5));
-
-	/* Round from float to int */
-	info->fan_pct[id] = ((int)(info->pid_u[id] + 0.5)) * 100 / AVA10_DEFAULT_FAN_MAX;
-
-	return pwm;
-
-}
-
 
 static int decode_pkg(struct cgpu_info *avalon10, struct avalon10_ret *ar, int modular_id)
 {
@@ -710,7 +544,7 @@ static int decode_pkg(struct cgpu_info *avalon10, struct avalon10_ret *ar, int m
 		info->local_works_i[modular_id][ar->idx] += be32toh(tmp);
 
 		memcpy(&tmp, ar->data + 16, 4);
-		info->hw_works_i[modular_id][ar->idx] += be32toh(tmp);
+		info->fan_pct[modular_id] = be32toh(tmp);
 
 		memcpy(&tmp, ar->data + 20, 4);
 		info->error_code[modular_id][ar->idx] = be32toh(tmp);
@@ -1353,6 +1187,11 @@ static void avalon10_init_setting(struct cgpu_info *avalon10, int addr)
 			avalon10->drv->name, avalon10->device_id, addr,
 			opt_avalon10_spdhigh);
 
+	send_pkg.data[31] = opt_avalon10_temp_target & 0xff;
+	applog(LOG_DEBUG, "%s-%d-%d: avalon10 set temp_target %u",
+			avalon10->drv->name, avalon10->device_id, addr,
+			opt_avalon10_temp_target);
+
 	/* Package the data */
 	avalon10_init_pkg(&send_pkg, AVA10_P_SET, 1, 1);
 	if (addr == AVA10_MODULE_BROADCAST)
@@ -1776,8 +1615,7 @@ static void detect_modules(struct cgpu_info *avalon10)
 		tmp = be32toh(tmp);
 		info->total_asics[i] = tmp;
 		info->temp_overheat[i] = AVA10_DEFAULT_TEMP_OVERHEAT;
-		info->temp_target[i] = opt_avalon10_temp_target;
-		info->fan_pct[i] = opt_avalon10_fan_min;
+		info->fan_pct[i] = 0;
 		for (j = 0; j < info->miner_count[i]; j++) {
 			if (opt_avalon10_voltage_level == AVA10_INVALID_VOLTAGE_LEVEL)
 				info->set_voltage_level[i][j] = avalon10_dev_table[dev_index].set_voltage_level;
@@ -1803,16 +1641,6 @@ static void detect_modules(struct cgpu_info *avalon10)
 		info->temp_mm[i] = -273;
 		info->local_works[i] = 0;
 		info->hw_works[i] = 0;
-
-		/*PID controller*/
-		info->pid_u[i] = opt_avalon10_fan_min;
-		info->pid_p[i] = opt_avalon10_pid_p;
-		info->pid_i[i] = opt_avalon10_pid_i;
-		info->pid_d[i] = opt_avalon10_pid_d;
-		info->pid_e[i][0] = 0;
-		info->pid_e[i][1] = 0;
-		info->pid_e[i][2] = 0;
-		info->pid_0[i] = 0;
 
 		for (j = 0; j < info->miner_count[i]; j++) {
 			memset(info->chip_matching_work[i][j], 0, sizeof(uint64_t) * info->asic_count[i]);
@@ -1874,17 +1702,9 @@ static int polling(struct cgpu_info *avalon10)
 	struct avalon10_pkg send_pkg;
 	struct avalon10_ret ar;
 	int i, tmp, ret, decode_err = 0;
-	struct timeval current_fan;
-	int do_adjust_fan = 0;
 	uint32_t fan_pwm;
 	double device_tdiff;
 
-	cgtime(&current_fan);
-	device_tdiff = tdiff(&current_fan, &(info->last_fan_adj));
-	if (device_tdiff > 2.0 || device_tdiff < 0) {
-		cgtime(&info->last_fan_adj);
-		do_adjust_fan = 1;
-	}
 
 	for (i = 1; i < AVA10_DEFAULT_MODULARS; i++) {
 		if (!info->enable[i])
@@ -1904,29 +1724,6 @@ static int polling(struct cgpu_info *avalon10)
 
 			tmp = be32toh(0x1);
 			memcpy(send_pkg.data + 4, &tmp, 4);
-		}
-
-		/* Adjust fan */
-		if (do_adjust_fan) {
-			fan_pwm = adjust_fan(info, i);
-			fan_pwm |= 0x80000000;
-			tmp = be32toh(fan_pwm);
-			memcpy(send_pkg.data + 8, &tmp, 4);
-
-			fan_pwm = adjust_fan(info, i);
-			fan_pwm |= 0x80000000;
-			tmp = be32toh(fan_pwm);
-			memcpy(send_pkg.data + 12, &tmp, 4);
-
-			fan_pwm = adjust_fan(info, i);
-			fan_pwm |= 0x80000000;
-			tmp = be32toh(fan_pwm);
-			memcpy(send_pkg.data + 16, &tmp, 4);
-
-			fan_pwm = adjust_fan(info, i);
-			fan_pwm |= 0x80000000;
-			tmp = be32toh(fan_pwm);
-			memcpy(send_pkg.data + 20, &tmp, 4);
 		}
 
 		avalon10_init_pkg(&send_pkg, AVA10_P_POLLING, 1, 1);
@@ -2055,21 +1852,10 @@ static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 		sprintf(buf, " Temp[%d]", info->temp_mm[i]);
 		strcat(statbuf, buf);
 
-		sprintf(buf, " Temptarget[%d]", info->temp_target[i] * 240);
-		strcat(statbuf, buf);
-
-
 		sprintf(buf, " TMax[%d]", get_temp_max(info, i));
 		strcat(statbuf, buf);
 
-		sprintf(buf, " Tmax_sum[%d]", get_temp_max_weight_for_ic_num(info, i));
-		strcat(statbuf, buf);
-
-
 		sprintf(buf, " TAvg[%d]", get_temp_average(info, i));
-		strcat(statbuf, buf);
-
-		sprintf(buf, " Tsum[%d]", get_temp_sum(info, i));
 		strcat(statbuf, buf);
 
 		sprintf(buf, " Fan1[%d]", info->fan_cpm[i][0]);
@@ -2079,21 +1865,6 @@ static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 		strcat(statbuf, buf);
 
 		sprintf(buf, " FanR[%d%%]", info->fan_pct[i]);
-		strcat(statbuf, buf);
-
-		sprintf(buf, " Fan_P[%d]", info->pid_p[i]);
-		strcat(statbuf, buf);
-
-		sprintf(buf, " Fan_I[%d]", info->pid_i[i]);
-		strcat(statbuf, buf);
-
-		sprintf(buf, " Fan_D[%d]", info->pid_d[i]);
-		strcat(statbuf, buf);
-
-		sprintf(buf, " PID_E[%d]", info->pid_e[i][0]);
-		strcat(statbuf, buf);
-
-		sprintf(buf, " PID_U[%d]", (int)info->pid_u[i]);
 		strcat(statbuf, buf);
 
 		sprintf(buf, " Vo[%d]", info->get_voltage[i][0]);
@@ -2757,7 +2528,7 @@ char *set_avalon10_target_temp_info(struct cgpu_info *avalon10, char *arg)
 		return "Invalid temperature value to set_avalon10_target_temp_info";
 
 	for (i = 1; i < AVA10_DEFAULT_MODULARS; i++)
-		info->temp_target[i] = val;
+		opt_avalon10_temp_target = val;
 
 	applog(LOG_NOTICE, "%s-%d: Update temperature info: %d",
 		avalon10->drv->name, avalon10->device_id, val);
@@ -2774,7 +2545,6 @@ static char *avalon10_set_device(struct cgpu_info *avalon10, char *option, char 
 		sprintf(replybuf, "pdelay|fan|frequency|led|voltage");
 		return replybuf;
 	}
-
 	if (strcasecmp(option, "pdelay") == 0) {
 		if (!setting || !*setting) {
 			sprintf(replybuf, "missing polling delay setting");
@@ -2791,25 +2561,6 @@ static char *avalon10_set_device(struct cgpu_info *avalon10, char *option, char 
 
 		applog(LOG_NOTICE, "%s-%d: Update polling delay to: %d",
 		       avalon10->drv->name, avalon10->device_id, val);
-
-		return NULL;
-	}
-
-	if (strcasecmp(option, "fan") == 0) {
-		if (!setting || !*setting) {
-			sprintf(replybuf, "missing fan value");
-			return replybuf;
-		}
-
-		if (set_avalon10_fan(setting)) {
-			sprintf(replybuf, "invalid fan value, valid range 0-100");
-			return replybuf;
-		}
-
-		applog(LOG_NOTICE, "%s-%d: Update fan to %d-%d",
-		       avalon10->drv->name, avalon10->device_id,
-		       opt_avalon10_fan_min * 100 / AVA10_DEFAULT_FAN_MAX, 
-		       opt_avalon10_fan_max * 100 / AVA10_DEFAULT_FAN_MAX);
 
 		return NULL;
 	}
