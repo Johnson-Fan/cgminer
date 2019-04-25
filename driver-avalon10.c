@@ -133,7 +133,7 @@ uint32_t cpm_table[][2] =
 
 struct avalon10_dev_description avalon10_dev_table[] = {
 	{
-		"A10",
+		"1041",
 		AVA10_DEFAULT_MINER_CNT,
 		AVA10_DEFAULT_ASIC_MAX,
 		AVA10_DEFAULT_VOLTAGE_LEVEL,
@@ -1596,7 +1596,7 @@ static void detect_modules(struct cgpu_info *avalon10)
 		memcpy(info->mm_version[i], ret_pkg.data + AVA10_MM_DNA_LEN, AVA10_MM_VER_LEN);
 		info->mm_version[i][AVA10_MM_VER_LEN] = '\0';
 		for (dev_index = 0; dev_index < (sizeof(avalon10_dev_table) / sizeof(avalon10_dev_table[0])); dev_index++) {
-			if (!strncmp((char *)&(info->mm_version[i]), (char *)(avalon10_dev_table[dev_index].dev_id_str), 3)) {
+			if (!strncmp((char *)&(info->mm_version[i]), (char *)(avalon10_dev_table[dev_index].dev_id_str), strlen(avalon10_dev_table[dev_index].dev_id_str))) {
 				info->miner_count[i] = avalon10_dev_table[dev_index].miner_count;
 				info->asic_count[i] = avalon10_dev_table[dev_index].asic_count;
 				break;

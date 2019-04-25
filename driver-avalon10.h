@@ -108,7 +108,7 @@
 #define AVA10_CONNECTER_AUC			1
 
 /* avalon10 protocol package type from MM protocol.h */
-#define AVA10_MM_VER_LEN			15
+#define AVA10_MM_VER_LEN			20
 #define AVA10_MM_DNA_LEN			8
 #define AVA10_H1				'C'
 #define AVA10_H2				'N'
