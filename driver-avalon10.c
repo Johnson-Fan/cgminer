@@ -2971,7 +2971,7 @@ static int64_t avalon10_scanhash(struct thr_info *thr)
 struct device_drv avalon10_drv = {
 	.drv_id = DRIVER_avalon10,
 	.dname = "avalon10",
-	.name = "AV9",
+	.name = "AV10",
 	.set_device = avalon10_set_device,
 	.get_api_stats = avalon10_api_stats,
 	.get_statline_before = avalon10_statline_before,
