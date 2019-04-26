@@ -1948,13 +1948,6 @@ static struct api_data *avalon10_api_stats(struct cgpu_info *avalon10)
 		strcat(statbuf, buf);
 
 		if (opt_debug) {
-			strcat(statbuf, " FAC0[");
-			sprintf(buf, "%d ", info->factory_info[i][0]);
-			strcat(statbuf, buf);
-			sprintf(buf, "%d ",info->factory_info[i][AVA10_DEFAULT_FACTORY_INFO_CNT]);
-			strcat(statbuf, buf);
-			statbuf[strlen(statbuf) - 1] = ']';
-
 			for (j = 0; j < info->miner_count[i]; j++) {
 				sprintf(buf, " SF%d[", j);
 				strcat(statbuf, buf);
